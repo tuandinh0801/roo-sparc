@@ -81,8 +81,6 @@ export class ModeSelector {
       }
     }
 
-    console.log('🚀 ~ ModeSelector ~ selectModesInteractively ~ allSelectedModeSlugs:', allSelectedModeSlugs);
-
     return allSelectedModeSlugs;
   }
 

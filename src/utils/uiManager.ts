@@ -1,6 +1,8 @@
+
 import chalk from 'chalk';
 import boxen, { Options as BoxenOptions } from 'boxen';
-import ora, { Ora } from 'ora'; // Import ora
+import ora, { Ora } from 'ora';
+import { pastel } from 'gradient-string';
 
 type ChalkInstance = typeof chalk;
 // BoxenOptions is now directly imported
@@ -16,6 +18,32 @@ export class UIManager {
 
   constructor() {
     this.chalk = chalk;
+  }
+
+  // --- Banner ---
+  /**
+   * Prints a colorful ASCII banner with gradient effects.
+   */
+  public printBanner(): void {
+    const banner = `
+
+██████╗  ██████╗  ██████╗     ██╗███╗   ██╗██╗████████╗     ██████╗██╗     ██╗
+██╔══██╗██╔═══██╗██╔═══██╗    ██║████╗  ██║██║╚══██╔══╝    ██╔════╝██║     ██║
+██████╔╝██║   ██║██║   ██║    ██║██╔██╗ ██║██║   ██║       ██║     ██║     ██║
+██╔══██╗██║   ██║██║   ██║    ██║██║╚██╗██║██║   ██║       ██║     ██║     ██║
+██║  ██║╚██████╔╝╚██████╔╝    ██║██║ ╚████║██║   ██║       ╚██████╗███████╗██║
+╚═╝  ╚═╝ ╚═════╝  ╚═════╝     ╚═╝╚═╝  ╚═══╝╚═╝   ╚═╝        ╚═════╝╚══════╝╚═╝
+
+    `;
+
+    const styledBanner = boxen(pastel(banner), {
+      padding: 1,
+      margin: 1,
+      borderStyle: 'round',
+      borderColor: 'cyan'
+    });
+
+    console.log(styledBanner);
   }
 
   // --- Spinner Methods ---

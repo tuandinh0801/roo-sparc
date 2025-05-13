@@ -44,6 +44,8 @@ export async function main(mainOptions: MainOptions = {}): Promise<void> {
   const app = new Command();
   const uiManager = new UIManager(); // Instantiate UIManager
 
+  uiManager.printBanner();
+
   app
     .name(pkg.name)
     .description(description)
