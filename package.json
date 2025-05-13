@@ -1,0 +1,54 @@
+{
+  "name": "roo-init",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "bin": {
+    "roo-init": "./bin/roo-init.js"
+  },
+  "scripts": {
+    "postinstall": "pnpm build",
+    "clean": "rimraf ./dist",
+    "copy-assets": "node scripts/copy-assets.js",
+    "build": "pnpm run clean && tsc && pnpm run copy-assets",
+    "build:watch": "pnpm run clean && pnpm run copy-assets && tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest --watch",
+    "coverage": "vitest --coverage",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "eslint . --ext .ts,.tsx --fix"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.10.0",
+  "devDependencies": {
+    "@eslint/js": "^9.26.0",
+    "@stylistic/eslint-plugin-ts": "^4.2.0",
+    "@types/fs-extra": "^11.0.4",
+    "@types/mock-fs": "^4.13.4",
+    "@types/node": "^22.15.17",
+    "@typescript-eslint/eslint-plugin": "^8.32.0",
+    "@typescript-eslint/parser": "^8.32.0",
+    "eslint": "^9.26.0",
+    "execa": "^9.5.3",
+    "jest": "29.5.0",
+    "memfs": "^4.17.1",
+    "mock-fs": "^5.5.0",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.32.0",
+    "vitest": "^1.6.0"
+  },
+  "dependencies": {
+    "boxen": "^8.0.1",
+    "chalk": "4.1.2",
+    "commander": "^12.1.0",
+    "enquirer": "^2.4.1",
+    "fs-extra": "^11.3.0",
+    "ora": "^8.2.0",
+    "strip-ansi": "^7.1.0",
+    "zod": "^3.24.4"
+  }
+}

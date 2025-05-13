@@ -1,0 +1,12 @@
+[
+  {
+    "slug": "core-agents",
+    "name": "Core SPARC Agents",
+    "description": "Fundamental agent roles for the SPARC methodology."
+  },
+  {
+    "slug": "development-workflows",
+    "name": "Development Workflows",
+    "description": "Modes supporting specific development processes like TDD."
+  }
+]

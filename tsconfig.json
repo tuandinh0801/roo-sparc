@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext", // Reverted to NodeNext for import attributes
+    "strict": true,
+    "esModuleInterop": false,
+    "allowSyntheticDefaultImports": true, // Added to help with CJS/ESM interop
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "./dist",
+    "rootDir": ".",
+    "resolveJsonModule": true,
+    "sourceMap": true,
+    "declaration": true,
+    "moduleResolution": "NodeNext", // Matches module
+    "types": ["node", "vitest/globals"],
+    "baseUrl": ".",
+    "paths": {
+      "*": ["node_modules/*", "src/types/*"]
+    }
+  },
+  "include": ["src/**/*", "tests/**/*", "package.json"],
+  "exclude": ["node_modules", "dist"]
+}
