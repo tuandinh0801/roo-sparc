@@ -14,8 +14,6 @@ For the Minimum Viable Product (MVP), the Roo Init CLI tool **does not require a
 
 If future enhancements require external configuration or integration (e.g., connecting to a central mode registry, API keys for plugins), environment variables might be introduced. Potential future variables could include:
 
-- `ROO_REGISTRY_URL`: URL for a central mode/rule registry.
-- `ROO_API_KEY`: API key for accessing external services.
 - `ROO_LOG_LEVEL`: To control logging verbosity (e.g., `debug`, `info`, `warn`, `error`).
 
 These will be documented here if and when they are implemented.

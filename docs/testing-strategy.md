@@ -74,6 +74,30 @@ This document outlines the strategy for testing the Roo Init CLI tool to ensure 
     - E2E: Handling file system permission errors (if simulatable) results in error message and non-zero exit code.
     - E2E: Successful run prints confirmation message.
 
+- **Epic 4: User-Defined Custom Mode & Category Management**
+    - Unit: `DefinitionLoader` correctly loads and merges system definitions with user-global definitions from `~/.config/roo-init/user-definitions.json`.
+    - Unit: `DefinitionLoader` correctly applies precedence (user-global over system) for conflicting slugs.
+    - Unit: `FileManager` correctly calculates paths and performs CRUD operations on files within `~/.config/roo-init/` (both `user-definitions.json` and rule files in `~/.config/roo-init/rules/[custom_mode_slug]/`).
+    - Unit: Validation logic within `manage` command handlers for unique custom slugs, field requirements.
+    - Integration: `manage add mode` command correctly interacts with `UiManager` (mocked `inquirer` for mode details, rule details, and editor prompt for rule content), `DefinitionLoader` (for context like existing categories/slugs), and `FileManager` (to save to global user config).
+    - Integration: `manage add category` command similar to above.
+    - Integration: `manage list modes/categories` commands correctly use `DefinitionLoader` and `UiManager` to display system, custom, or all definitions.
+    - Integration: `manage edit mode/category` commands correctly load existing custom defs, prompt for changes (mocked `inquirer`), and save updates via `FileManager`.
+    - Integration: `manage delete mode/category` commands correctly remove definitions from `user-definitions.json` and associated rule files/directories via `FileManager`.
+    - E2E: Full interactive flow for `roo-init manage add mode` (simulated `inquirer` input, including editor):
+        - Verify prompts for all fields.
+        - Verify `user-definitions.json` is created/updated correctly in a temporary global config dir.
+        - Verify rule files are created with correct content in the temporary global config dir.
+    - E2E: Full interactive flow for `roo-init manage add category`.
+    - E2E: `roo-init manage list modes --source=custom/system/all` displays correct output.
+    - E2E: `roo-init manage list categories --source=custom/system/all` displays correct output.
+    - E2E: Full interactive flow for `roo-init manage edit mode <slug>` including adding, editing (content and metadata), and deleting rules. Verify changes in temporary global config.
+    - E2E: Full interactive flow for `roo-init manage edit category <slug>`.
+    - E2E: `roo-init manage delete mode <slug>` (with confirmation) removes mode and its rules from temporary global config.
+    - E2E: `roo-init manage delete category <slug>` (with confirmation) removes category and updates referencing modes in temporary global config.
+    - E2E: Error handling for `manage` commands (e.g., non-existent slug for edit/delete, attempting to add duplicate custom slug, invalid input during prompts).
+    - E2E: `roo-init` (main init command) correctly lists and allows selection of merged system + custom modes (respecting precedence) when a temporary global config with custom modes is present.
+    - E2E: `roo-init` correctly copies rule files from both system bundle and temporary global custom rule locations to the target project.
 ## Change Log
 
 | Change        | Date       | Version | Description                                      | Author         |

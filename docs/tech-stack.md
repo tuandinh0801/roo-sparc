@@ -22,9 +22,9 @@ This document outlines the technology stack chosen for the Roo Init CLI tool, fo
   - **Version:** `^17.7.2` (Latest stable as of May 2025)
   - **Justification:** Recommended in PRD ([`docs/prd.md:139`](docs/prd.md:139)). Powerful and flexible library for building complex CLI interfaces with commands, options, validation, and help generation.
 
-- **Interactive Prompts:** `enquirer`
-  - **Version:** `^2.4.1` (Latest stable as of May 2025)
-  - **Justification:** User-friendly, intuitive, and highly customizable prompt system for CLIs. Offers robust features and a better developer experience compared to alternatives for complex interactive flows.
+- **Interactive Prompts:** `inquirer`
+  - **Version:** `^9.2.20` (Latest stable as of May 2025, or verify latest)
+  - **Justification:** User-friendly, intuitive, and highly customizable prompt system for CLIs. Offers robust features, including an `editor` prompt type suitable for multi-line input, and a good developer experience for complex interactive flows.
 
 - **CLI UI/UX Enhancements:**
   - **`chalk`**:

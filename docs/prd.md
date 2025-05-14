@@ -50,6 +50,12 @@ The Roo Init CLI tool aims to solve the common problem of manual, error-prone, a
 - **Feedback & Error Handling:**
     - Provide clear progress messages during initialization.
     - Display informative error messages for invalid selections, file system issues, missing mode/rule definitions, or configuration problems.
+- **Custom Mode and Category Management (User-Specific Global):**
+    - Allow users to Create, Read, Update, and Delete their own custom modes and categories.
+    - Custom definitions are stored globally in the user's configuration directory (e.g., `~/.config/roo-init/user-definitions.json`).
+    - Custom rule files (`.md`) associated with custom modes are stored in subdirectories within a global user rules directory (e.g., `~/.config/roo-init/rules/[custom_mode_slug]/`).
+    - Provide an in-CLI mechanism (e.g., editor prompt) for users to create/edit the content of their custom rule files.
+    - Custom modes/categories can use slugs that match system slugs; in such cases, the custom definition takes precedence. Slugs must be unique among other custom definitions.
 
 ### Non-Functional Requirements (NFRs)
 
@@ -94,15 +100,21 @@ The Roo Init CLI tool aims to solve the common problem of manual, error-prone, a
   - Goal: Establish the basic CLI application structure, command-line argument parsing (for help, version), and the internal mechanisms for loading and accessing predefined mode and rule definitions.
 - **Epic 2: Interactive Mode Operations & Core File Generation.**
   - Goal: Implement the interactive user prompting system for discovering and selecting modes (individually and by category), and the core logic to generate the `.roomodes` file and copy associated rule files to the target project's `.roo` directory structure.
+- **Epic 3: Non-Interactive Mode, Advanced Options, and Robustness.** (Assuming Epic 3 from file list is still relevant, if it was superseded by Epic 2's scope update, this might need adjustment)
+  - Goal: Implement non-interactive mode, `--force` flag, and comprehensive error handling.
+- **Epic 4: User-Defined Custom Mode & Category Management (CRUD).**
+  - Goal: Empower users with full lifecycle management for their own custom modes and categories, stored globally, with in-CLI rule editing.
 
 ## Key Reference Documents
 
 - [`docs/project-brief-roo-init-cli.md`](docs/project-brief-roo-init-cli.md)
-- [`docs/architecture.md`](docs/architecture.md) (to be created)
-- [`docs/epic1.md`](docs/epic1.md) (to be created)
-- [`docs/epic2.md`](docs/epic2.md) (to be created)
-- [`docs/tech-stack.md`](docs/tech-stack.md) (to be created)
-- [`docs/testing-strategy.md`](docs/testing-strategy.md) (to be created)
+- [`docs/architecture.md`](docs/architecture.md)
+- [`docs/epic1.md`](docs/epic1.md)
+- [`docs/epic2.md`](docs/epic2.md)
+- [`docs/epic3.md`](docs/epic3.md) (Assuming Epic 3 from file list is still relevant)
+- [`docs/epic4.md`](docs/epic4.md)
+- [`docs/tech-stack.md`](docs/tech-stack.md)
+- [`docs/testing-strategy.md`](docs/testing-strategy.md)
 - [`specs/consolidated_domain_model.md`](../specs/consolidated_domain_model.md)
 - [`specs/consolidated_requirements_and_criteria.md`](../specs/consolidated_requirements_and_criteria.md)
 
@@ -120,7 +132,8 @@ The Roo Init CLI tool aims to solve the common problem of manual, error-prone, a
 | Change        | Date       | Version | Description                  | Author         |
 | ------------- | ---------- | ------- | ---------------------------- | -------------- |
 | Initial Draft | 2025-05-12 | 0.1.0   | First draft of PRD based on Project Brief. | Product Manager |
-| Scope Update  | 2025-05-12 | 0.1.1   | Removed non-interactive mode from MVP scope. | Product Manager |
+| Scope Update  | 2025-05-12 | 0.1.1   | Removed non-interactive mode from MVP scope. Re-scoped Epic 2. | Product Manager |
+| Epic 4 Add  | 2025-05-14 | 0.2.0   | Added Custom Mode/Category Management (Epic 4) requirements. | Product Manager |
 
 ## Initial Architect Prompt
 
@@ -136,7 +149,7 @@ The Roo Init CLI tool aims to solve the common problem of manual, error-prone, a
 
 - Must be implemented in Node.js (v20.x+).
 - Must be cross-platform (Windows, macOS, Linux).
-- Strive for minimal external dependencies. Choose well-maintained and lightweight libraries for argument parsing (e.g., `commander`, `commander`) and interactive prompts (e.g., `inquirer`).
+- Strive for minimal external dependencies. Choose well-maintained and lightweight libraries for argument parsing (e.g., `commander`) and interactive prompts (e.g., `inquirer`).
 - The internal data structures for modes, rules, and categories must be compatible with the definitions in [`specs/consolidated_domain_model.md`](../specs/consolidated_domain_model.md).
 - File system operations must be robust, handling path resolutions, permissions gracefully (where possible), and providing clear errors.
 
