@@ -1,47 +1,13 @@
-import { describe, it, expect, vi, beforeEach, afterEach, Mocked } from 'vitest'; // Already imported, ensure it stays
+import { describe, it, expect, vi, beforeEach, afterEach, Mocked, MockInstance } from 'vitest';
 import fs from 'fs-extra';
-import path from 'path'; // Corrected import: use 'path' not 'node:path' if that was the issue
+import path from 'path';
 import { FileManager } from '../../src/core/FileManager.js';
 import { UIManager } from '../../src/utils/uiManager.js';
 import { handleError } from '../../src/utils/errorHandler.js';
-// The following imports are problematic for the mock factory and will be removed.
-// We will use importActual within the mock factory instead.
-// import {
-//   OverwriteConflictError as ActualOverwriteConflictError,
-//   FileSystemError as ActualFileSystemError
-// } from '../../src/utils/errorHandler.js';
-import oraDefault from 'ora'; // Import the default export for mocking
 
 // --- Mocks ---
 vi.mock('fs-extra');
-
-// Define the mock spinner object (this will be the instance returned by ora())
-const mockSpinnerInstance = {
-  start: vi.fn().mockReturnThis(),
-  succeed: vi.fn().mockReturnThis(),
-  fail: vi.fn().mockReturnThis(),
-  stop: vi.fn().mockReturnThis(),
-  text: '', // Ensure text property is present and can be set/read
-};
-
-// Mock the 'ora' module. The factory should return an object
-// that represents the module's exports.
-vi.mock('ora', () => ({
-  __esModule: true, // Important for ES modules
-  default: vi.fn(), // Initialize the default export as a plain vi.fn()
-}));
-
-
 vi.mock('../../src/utils/uiManager.js');
-// Mock errorHandler.js, using importActual to get original error classes
-vi.mock('../../src/utils/errorHandler.js', async(importOriginal) => {
-  const originalModule = await importOriginal();
-  return {
-    ...(originalModule as any), // Spread the original module to get actual error classes
-    handleError: vi.fn(),      // Mock only handleError
-  };
-});
-
 
 describe('FileManager', () => {
   let fileManager: FileManager;
@@ -52,30 +18,38 @@ describe('FileManager', () => {
   beforeEach(() => {
     vi.resetAllMocks(); // Reset all mocks first
 
-    // Restore/set the implementation for the mocked 'ora' default export
-    // Now 'oraDefault' refers to the vi.fn() we set as the default export in the mock factory
-    vi.mocked(oraDefault).mockImplementation(() => mockSpinnerInstance as any); // Cast to any
-
-    // Reset the state of the spinner instance's methods for the current test
-    mockSpinnerInstance.start.mockClear().mockReturnThis();
-    mockSpinnerInstance.succeed.mockClear().mockReturnThis();
-    mockSpinnerInstance.fail.mockClear().mockReturnThis();
-    mockSpinnerInstance.stop.mockClear().mockReturnThis();
-    mockSpinnerInstance.text = ''; // Corrected reference
-
     // Create and setup mock UIManager
-    mockUiManager = new (vi.mocked(UIManager))() as Mocked<UIManager>; // Use imported Mocked type
+    mockUiManager = new (vi.mocked(UIManager))() as Mocked<UIManager>;
+
+    // Reset UiManager spinner mocks
+    (mockUiManager.startSpinner as any).mockClear().mockReturnThis();
+    (mockUiManager.succeedSpinner as any).mockClear().mockReturnThis();
+    (mockUiManager.failSpinner as any).mockClear().mockReturnThis();
+
     mockUiManager.chalk = {
       cyan: vi.fn((str: string) => str),
       yellow: vi.fn((str: string) => str),
       green: vi.fn((str: string) => str),
       red: vi.fn((str: string) => str),
       bold: vi.fn((str: string) => str),
-    } as any; // Use 'as any' for simplicity, or define a stricter mock type
+    } as any;
     mockUiManager.printWarning = vi.fn();
     mockUiManager.printSuccess = vi.fn();
+    mockUiManager.startSpinner = vi.fn().mockReturnThis() as unknown as (text: string) => void;
+    mockUiManager.succeedSpinner = vi.fn().mockReturnThis() as unknown as (text?: string) => void;
+    mockUiManager.failSpinner = vi.fn().mockReturnThis() as unknown as (text?: string) => void;
+    mockUiManager.promptConfirm = vi.fn().mockResolvedValue(true);
 
     fileManager = new FileManager(mockUiManager);
+
+    // Mock errorHandler.js, using importActual to get original error classes
+    vi.mock('../../src/utils/errorHandler.js', async(importOriginal) => {
+      const originalModule = await importOriginal();
+      return {
+        ...(originalModule as any), // Spread the original module to get actual error classes
+        handleError: vi.fn(),      // Mock only handleError
+      };
+    });
   });
 
   afterEach(() => {
@@ -95,9 +69,9 @@ describe('FileManager', () => {
 
       // Assert
       expect(fs.ensureDir).toHaveBeenCalledWith(testDirPath);
-      expect(mockSpinnerInstance.start).toHaveBeenCalled();
-      expect(mockSpinnerInstance.succeed).toHaveBeenCalled();
-      expect(mockSpinnerInstance.fail).not.toHaveBeenCalled();
+      expect(mockUiManager.startSpinner).toHaveBeenCalledWith(expect.stringContaining('Ensuring directory exists'));
+      expect(mockUiManager.succeedSpinner).toHaveBeenCalledWith(expect.stringContaining('Directory ensured'));
+      expect(mockUiManager.failSpinner).not.toHaveBeenCalled();
       expect(handleError).not.toHaveBeenCalled();
     });
 
@@ -109,10 +83,10 @@ describe('FileManager', () => {
       // Act & Assert
       await expect(fileManager.createDirectoryIfNotExists(testDirPath)).rejects.toThrow(error);
       expect(fs.ensureDir).toHaveBeenCalledWith(testDirPath);
-      expect(mockSpinnerInstance.start).toHaveBeenCalled();
-      expect(mockSpinnerInstance.fail).toHaveBeenCalled();
-      expect(mockSpinnerInstance.succeed).not.toHaveBeenCalled();
-      expect(handleError).toHaveBeenCalledWith(error, expect.objectContaining({ context: 'ensuring directory' })); // Check context
+      expect(mockUiManager.startSpinner).toHaveBeenCalledWith(expect.stringContaining('Ensuring directory exists'));
+      expect(mockUiManager.failSpinner).toHaveBeenCalledWith(expect.stringContaining('Failed to ensure directory'));
+      expect(mockUiManager.succeedSpinner).not.toHaveBeenCalled();
+      expect(handleError).toHaveBeenCalledWith(error, expect.objectContaining({ context: 'ensuring directory' }));
     });
   });
 
@@ -134,10 +108,10 @@ describe('FileManager', () => {
       expect(fs.pathExists).toHaveBeenCalledWith(destinationFilePath);
       expect(fs.ensureDir).toHaveBeenCalledWith(destinationDir);
       expect(fs.copy).toHaveBeenCalledWith(sourceFilePath, destinationFilePath, { overwrite: false });
-      expect(mockSpinnerInstance.succeed).toHaveBeenCalled();
+      expect(mockUiManager.succeedSpinner).toHaveBeenCalledWith(expect.stringContaining('File successfully copied'));
       expect(handleError).not.toHaveBeenCalled();
       // Check if UIManager methods were called if they were mocked and expected
-      // expect(mockUiManager.printSuccess).toHaveBeenCalled();
+      expect(mockUiManager.printSuccess).toHaveBeenCalled();
     });
 
     it('should not copy a file if destination exists and force is false', async() => {
@@ -152,7 +126,7 @@ describe('FileManager', () => {
       expect(fs.pathExists).toHaveBeenCalledWith(destinationFilePath);
       expect(fs.ensureDir).not.toHaveBeenCalled(); // ensureDir on parent shouldn't be called if exists check fails early
       expect(fs.copy).not.toHaveBeenCalled();
-      expect(mockSpinnerInstance.fail).toHaveBeenCalled();
+      expect(mockUiManager.failSpinner).toHaveBeenCalled();
       // Check if UIManager methods were called if they were mocked and expected
       // expect(mockUiManager.printWarning).toHaveBeenCalled();
       // The error is thrown, then caught, then handleError is called, then the error is re-thrown.
@@ -179,7 +153,7 @@ describe('FileManager', () => {
       expect(fs.pathExists).toHaveBeenCalledWith(destinationFilePath);
       expect(fs.ensureDir).toHaveBeenCalledWith(destinationDir);
       expect(fs.copy).toHaveBeenCalledWith(sourceFilePath, destinationFilePath, { overwrite: true });
-      expect(mockSpinnerInstance.succeed).toHaveBeenCalled();
+      expect(mockUiManager.succeedSpinner).toHaveBeenCalledWith(expect.stringContaining('File successfully copied'));
       expect(handleError).not.toHaveBeenCalled();
     });
 
@@ -195,7 +169,7 @@ describe('FileManager', () => {
       expect(fs.pathExists).toHaveBeenCalledWith(destinationFilePath);
       expect(fs.ensureDir).not.toHaveBeenCalled();
       expect(fs.copy).not.toHaveBeenCalled();
-      expect(mockSpinnerInstance.fail).toHaveBeenCalled();
+      expect(mockUiManager.failSpinner).toHaveBeenCalledWith(expect.stringContaining('Failed to copy file'));
       expect(handleError).toHaveBeenCalledWith(error, expect.objectContaining({ context: 'copying file' })); // Check context
     });
 
@@ -212,7 +186,7 @@ describe('FileManager', () => {
       expect(fs.pathExists).toHaveBeenCalledWith(destinationFilePath);
       expect(fs.ensureDir).toHaveBeenCalledWith(destinationDir);
       expect(fs.copy).not.toHaveBeenCalled();
-      expect(mockSpinnerInstance.fail).toHaveBeenCalled();
+      expect(mockUiManager.failSpinner).toHaveBeenCalledWith(expect.stringContaining('Failed to copy file'));
       expect(handleError).toHaveBeenCalledWith(error, expect.objectContaining({ context: 'copying file' })); // Check context
     });
 
@@ -230,7 +204,7 @@ describe('FileManager', () => {
       expect(fs.pathExists).toHaveBeenCalledWith(destinationFilePath);
       expect(fs.ensureDir).toHaveBeenCalledWith(destinationDir);
       expect(fs.copy).toHaveBeenCalledWith(sourceFilePath, destinationFilePath, { overwrite: false });
-      expect(mockSpinnerInstance.fail).toHaveBeenCalled();
+      expect(mockUiManager.failSpinner).toHaveBeenCalledWith(expect.stringContaining('Failed to copy file'));
       expect(handleError).toHaveBeenCalledWith(error, expect.objectContaining({ context: 'copying file' })); // Check context
     });
 
@@ -249,7 +223,7 @@ describe('FileManager', () => {
       expect(fs.pathExists).toHaveBeenCalledWith(destinationFilePath);
       expect(fs.ensureDir).toHaveBeenCalledWith(destinationDir);
       expect(fs.copy).toHaveBeenCalledWith(sourceFilePath, destinationFilePath, { overwrite: true });
-      expect(mockSpinnerInstance.fail).toHaveBeenCalled();
+      expect(mockUiManager.failSpinner).toHaveBeenCalledWith(expect.stringContaining('Failed to copy file'));
       expect(handleError).toHaveBeenCalledWith(error, expect.objectContaining({ context: 'copying file' })); // Check context
     });
   });
@@ -270,7 +244,7 @@ describe('FileManager', () => {
       expect(fs.ensureDir).toHaveBeenCalledWith(expectedBaseRooPath);
       expect(fs.ensureDir).toHaveBeenCalledWith(expectedRulesPath);
       expect(fs.ensureDir).toHaveBeenCalledWith(expectedModePath);
-      expect(mockSpinnerInstance.succeed).toHaveBeenCalledTimes(1); // Implementation calls succeed once at the end
+      expect(mockUiManager.succeedSpinner).toHaveBeenCalledWith(expect.stringContaining('Rule directory structure ensured'));
     });
 
     it('should call handleError if any directory creation fails', async() => {
@@ -317,7 +291,7 @@ describe('FileManager', () => {
       expect(fs.copy).toHaveBeenCalledWith(sourceRule1Path, targetRule1Path, { overwrite: false });
       expect(fs.pathExists).toHaveBeenCalledWith(targetRule2Path);
       expect(fs.copy).toHaveBeenCalledWith(sourceRule2Path, targetRule2Path, { overwrite: false });
-      expect(mockSpinnerInstance.succeed).toHaveBeenCalledTimes(ruleFiles.length); // One success per file copy
+      expect(mockUiManager.succeedSpinner).toHaveBeenCalledTimes(ruleFiles.length); // One success per file copy
     });
 
     it('should respect the force flag when copying files', async() => {
@@ -331,7 +305,7 @@ describe('FileManager', () => {
 
       expect(fs.copy).toHaveBeenCalledWith(sourceRule1Path, targetRule1Path, { overwrite: true });
       // createDirectoryIfNotExists (called internally) + copyRuleFilesForMode spinner
-      expect(mockSpinnerInstance.succeed).toHaveBeenCalledTimes(2);
+      expect(mockUiManager.succeedSpinner).toHaveBeenCalledTimes(2);
     });
 
     it('should not copy if file exists and force is false, and call UIManager.printWarning', async() => {
@@ -413,7 +387,7 @@ describe('FileManager', () => {
       expect(fs.pathExists).toHaveBeenCalledWith(testFilePath);
       expect(fs.ensureDir).toHaveBeenCalledWith(testFileDir);
       expect(fs.writeJson).toHaveBeenCalledWith(testFilePath, jsonData, { spaces: 2 });
-      // expect(mockSpinnerInstance.succeed).toHaveBeenCalled(); // Direct spinner calls removed
+      // succeedSpinner is no longer called in the implementation
       expect(mockUiManager.printInfo).toHaveBeenCalledWith(expect.stringContaining('JSON file written:'));
       expect(handleError).not.toHaveBeenCalled();
     });
@@ -437,9 +411,10 @@ describe('FileManager', () => {
       expect(fs.pathExists).toHaveBeenCalledWith(testFilePath);
       expect(fs.ensureDir).not.toHaveBeenCalled();
       expect(fs.writeJson).not.toHaveBeenCalled();
-      // expect(mockSpinnerInstance.fail).toHaveBeenCalled(); // Direct spinner calls removed
-      // handleError is not called directly by writeJson for OverwriteConflictError anymore
-      expect(handleError).not.toHaveBeenCalled();
+      // Implementation now calls failSpinner for OverwriteConflictError
+      expect(mockUiManager.failSpinner).toHaveBeenCalled();
+      // Implementation now calls handleError for OverwriteConflictError
+      expect(handleError).toHaveBeenCalled();
     });
 
     it('should write JSON if destination exists and force is true', async() => {
@@ -452,7 +427,7 @@ describe('FileManager', () => {
       expect(fs.pathExists).toHaveBeenCalledWith(testFilePath);
       expect(fs.ensureDir).toHaveBeenCalledWith(testFileDir);
       expect(fs.writeJson).toHaveBeenCalledWith(testFilePath, jsonData, { spaces: 2 });
-      // expect(mockSpinnerInstance.succeed).toHaveBeenCalled(); // Direct spinner calls removed
+      // succeedSpinner is no longer called in the implementation
       expect(mockUiManager.printInfo).toHaveBeenCalledWith(expect.stringContaining('JSON file written:'));
       expect(handleError).not.toHaveBeenCalled();
     });
@@ -475,7 +450,7 @@ describe('FileManager', () => {
       expect(fs.pathExists).toHaveBeenCalledWith(testFilePath);
       expect(fs.ensureDir).not.toHaveBeenCalled();
       expect(fs.writeJson).not.toHaveBeenCalled();
-      // expect(mockSpinnerInstance.fail).toHaveBeenCalled(); // Direct spinner calls removed
+      expect(mockUiManager.failSpinner).toHaveBeenCalled();
       expect(handleError).toHaveBeenCalledWith(expect.any(FileSystemError), expect.objectContaining({ context: 'writing JSON file', uiManager: mockUiManager }));
     });
 
@@ -497,7 +472,7 @@ describe('FileManager', () => {
       expect(fs.pathExists).toHaveBeenCalledWith(testFilePath);
       expect(fs.ensureDir).toHaveBeenCalledWith(testFileDir);
       expect(fs.writeJson).not.toHaveBeenCalled();
-      // expect(mockSpinnerInstance.fail).toHaveBeenCalled(); // Direct spinner calls removed
+      expect(mockUiManager.failSpinner).toHaveBeenCalled();
       expect(handleError).toHaveBeenCalledWith(expect.any(FileSystemError), expect.objectContaining({ context: 'writing JSON file', uiManager: mockUiManager }));
     });
 
@@ -520,7 +495,7 @@ describe('FileManager', () => {
       expect(fs.pathExists).toHaveBeenCalledWith(testFilePath);
       expect(fs.ensureDir).toHaveBeenCalledWith(testFileDir);
       expect(fs.writeJson).toHaveBeenCalledWith(testFilePath, jsonData, { spaces: 2 });
-      // expect(mockSpinnerInstance.fail).toHaveBeenCalled(); // Direct spinner calls removed
+      expect(mockUiManager.failSpinner).toHaveBeenCalled();
       expect(handleError).toHaveBeenCalledWith(expect.any(FileSystemError), expect.objectContaining({ context: 'writing JSON file', uiManager: mockUiManager }));
     });
 
@@ -544,7 +519,7 @@ describe('FileManager', () => {
       expect(fs.pathExists).toHaveBeenCalledWith(testFilePath);
       expect(fs.ensureDir).toHaveBeenCalledWith(testFileDir);
       expect(fs.writeJson).toHaveBeenCalledWith(testFilePath, jsonData, { spaces: 2 });
-      // expect(mockSpinnerInstance.fail).toHaveBeenCalled(); // Direct spinner calls removed
+      expect(mockUiManager.failSpinner).toHaveBeenCalled();
       expect(handleError).toHaveBeenCalledWith(expect.any(FileSystemError), expect.objectContaining({ context: 'writing JSON file', uiManager: mockUiManager }));
     });
   });

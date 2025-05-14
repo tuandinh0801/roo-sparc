@@ -1,6 +1,5 @@
 import fs from 'fs-extra';
 import path from 'node:path';
-import oraDefault from 'ora'; // Corrected import name
 import { ModeDefinition } from '../types/domain.js';
 import { UIManager } from '../utils/uiManager.js';
 import { handleError, FileSystemError, OverwriteConflictError } from '../utils/errorHandler.js'; // Import custom errors
@@ -108,21 +107,20 @@ export class FileManager {
       const fileExists = await fs.pathExists(filePath);
 
       if (fileExists && !force) {
-        // this.uiManager.failSpinner(`File already exists: ${this.uiManager.chalk.yellow(relativePath)}`);
+        this.uiManager.failSpinner(`File already exists: ${this.uiManager.chalk.yellow(relativePath)}`);
         throw new OverwriteConflictError(
           `File already exists: ${relativePath}. Use --force to overwrite.`,
           relativePath,
         );
       }
 
-      // this.uiManager.updateSpinner(`Writing JSON file to ${this.uiManager.chalk.cyan(relativePath)}...`);
       await fs.ensureDir(path.dirname(filePath));
       await fs.writeJson(filePath, data, { spaces: 2 });
-      // this.uiManager.succeedSpinner(`JSON file successfully written to ${this.uiManager.chalk.green(relativePath)}`);
       this.uiManager.printInfo(`JSON file written: ${this.uiManager.chalk.green(relativePath)}`);
     } catch (error: unknown) {
-      // this.uiManager.failSpinner(`Failed to write JSON file to ${this.uiManager.chalk.red(relativePath)}`);
+      this.uiManager.failSpinner(`Failed to write JSON file to ${this.uiManager.chalk.red(relativePath)}`);
       if (error instanceof OverwriteConflictError) {
+        handleError(error, { context: 'writing JSON file', uiManager: this.uiManager }); // Call handleError for OverwriteConflictError
         // Let handleError in the CLI command handle displaying this specific error
         throw error;
       }
@@ -145,17 +143,17 @@ export class FileManager {
     directoryPath: string,
   ): Promise<void> {
     const relativePath = path.relative(process.cwd(), directoryPath);
-    const spinner = oraDefault(
+    this.uiManager.startSpinner(
       `Ensuring directory exists at ${this.uiManager.chalk.cyan(relativePath)}...`,
-    ).start();
+    );
 
     try {
       await fs.ensureDir(directoryPath);
-      spinner.succeed(
+      this.uiManager.succeedSpinner(
         `Directory ensured at ${this.uiManager.chalk.green(relativePath)}`,
       );
     } catch (error: unknown) {
-      spinner.fail(
+      this.uiManager.failSpinner(
         `Failed to ensure directory at ${this.uiManager.chalk.red(relativePath)}`,
       );
       // Pass the error directly
@@ -181,15 +179,15 @@ export class FileManager {
   ): Promise<void> {
     const relativeSourcePath = path.relative(process.cwd(), sourcePath);
     const relativeDestPath = path.relative(process.cwd(), destinationPath);
-    const spinner = oraDefault(
+    this.uiManager.startSpinner(
       `Preparing to copy file from ${this.uiManager.chalk.cyan(relativeSourcePath)} to ${this.uiManager.chalk.cyan(relativeDestPath)}...`,
-    ).start();
+    );
 
     try {
       const destinationExists = await fs.pathExists(destinationPath);
 
       if (destinationExists && !force) {
-        spinner.fail(
+        this.uiManager.failSpinner(
           `Destination file already exists: ${this.uiManager.chalk.yellow(relativeDestPath)}`,
         );
         // Throw specific OverwriteConflictError
@@ -199,10 +197,10 @@ export class FileManager {
         );
       }
 
-      spinner.text = `Copying file to ${this.uiManager.chalk.cyan(relativeDestPath)}...`;
+      this.uiManager.updateSpinnerText(`Copying file to ${this.uiManager.chalk.cyan(relativeDestPath)}...`);
       await fs.ensureDir(path.dirname(destinationPath)); // Ensure destination directory exists
       await fs.copy(sourcePath, destinationPath, { overwrite: force });
-      spinner.succeed(
+      this.uiManager.succeedSpinner(
         `File successfully copied to ${this.uiManager.chalk.green(relativeDestPath)}`,
       );
       this.uiManager.printSuccess(
@@ -210,7 +208,7 @@ export class FileManager {
         'File Copied',
       );
     } catch (error: unknown) {
-      spinner.fail(
+      this.uiManager.failSpinner(
         `Failed to copy file to ${this.uiManager.chalk.red(relativeDestPath)}`,
       );
       // Handle OverwriteConflictError specifically
@@ -246,9 +244,9 @@ export class FileManager {
   ): Promise<void> {
     const relativeSource = path.relative(process.cwd(), sourceDir);
     const relativeDest = path.relative(process.cwd(), destinationDir);
-    const spinner = oraDefault(
+    this.uiManager.startSpinner(
       `Preparing to copy ${context} from ${this.uiManager.chalk.cyan(relativeSource)} to ${this.uiManager.chalk.cyan(relativeDest)}...`,
-    ).start();
+    );
 
     try {
       // 1. Check if source directory exists
@@ -265,15 +263,15 @@ export class FileManager {
       await this.createDirectoryIfNotExists(destinationDir); // Leverages existing method with its own spinner/logging
 
       // 3. Read source directory contents
-      spinner.text = `Reading source directory ${this.uiManager.chalk.cyan(relativeSource)}...`;
+      this.uiManager.updateSpinnerText(`Reading source directory ${this.uiManager.chalk.cyan(relativeSource)}...`);
       const items = await fs.readdir(sourceDir);
 
       if (items.length === 0) {
-        spinner.info(`Source directory ${this.uiManager.chalk.cyan(relativeSource)} is empty. Nothing to copy.`);
+        this.uiManager.infoSpinner(`Source directory ${this.uiManager.chalk.cyan(relativeSource)} is empty. Nothing to copy.`);
         return;
       }
 
-      spinner.text = `Copying ${items.length} item(s) for ${context}...`;
+      this.uiManager.updateSpinnerText(`Copying ${items.length} item(s) for ${context}...`);
 
       // 4. Copy each file
       let filesCopied = 0;
@@ -296,23 +294,23 @@ export class FileManager {
               // Continue to the next file
             } else {
               // Rethrow other critical copy errors to stop the process
-              spinner.fail(`Critical error copying item: ${item}`);
+              this.uiManager.failSpinner(`Critical error copying item: ${item}`);
               throw copyError; // Rethrow to be caught by the outer catch
             }
           }
         } else {
-          spinner.warn(`Skipping non-file item: ${item}`); // Optionally log skipping directories/symlinks etc.
+          this.uiManager.warnSpinner(`Skipping non-file item: ${item}`); // Optionally log skipping directories/symlinks etc.
         }
       }
 
       if (filesSkipped > 0) {
-        spinner.succeed(`Copying ${context} complete. Copied: ${filesCopied}, Skipped (overwrite): ${filesSkipped}.`);
+        this.uiManager.succeedSpinner(`Copying ${context} complete. Copied: ${filesCopied}, Skipped (overwrite): ${filesSkipped}.`);
       } else {
-        spinner.succeed(`Copying ${context} complete. Copied: ${filesCopied} file(s).`);
+        this.uiManager.succeedSpinner(`Copying ${context} complete. Copied: ${filesCopied} file(s).`);
       }
 
     } catch (error: unknown) {
-      spinner.fail(`Failed to copy ${context} from ${this.uiManager.chalk.red(relativeSource)}.`);
+      this.uiManager.failSpinner(`Failed to copy ${context} from ${this.uiManager.chalk.red(relativeSource)}.`);
       // Handle specific errors like source not existing, or rethrow others
       if (error instanceof FileSystemError && error.message.includes('Source directory does not exist')) {
         // Let the specific error message be handled by the caller's catch block
@@ -348,17 +346,17 @@ export class FileManager {
     const rulesPath = path.join(rooPath, 'rules');
     const modeSpecificPath = path.join(rulesPath, mode);
 
-    const spinner = oraDefault(`Ensuring rule directory structure for mode ${mode}...`).start();
+    this.uiManager.startSpinner(`Ensuring rule directory structure for mode ${mode}...`);
     try {
-      spinner.text = `Ensuring directory: ${this.uiManager.chalk.cyan(path.relative(process.cwd(), rooPath))}`;
+      this.uiManager.updateSpinnerText(`Ensuring directory: ${this.uiManager.chalk.cyan(path.relative(process.cwd(), rooPath))}`);
       await fs.ensureDir(rooPath);
-      spinner.text = `Ensuring directory: ${this.uiManager.chalk.cyan(path.relative(process.cwd(), rulesPath))}`;
+      this.uiManager.updateSpinnerText(`Ensuring directory: ${this.uiManager.chalk.cyan(path.relative(process.cwd(), rulesPath))}`);
       await fs.ensureDir(rulesPath);
-      spinner.text = `Ensuring directory: ${this.uiManager.chalk.cyan(path.relative(process.cwd(), modeSpecificPath))}`;
+      this.uiManager.updateSpinnerText(`Ensuring directory: ${this.uiManager.chalk.cyan(path.relative(process.cwd(), modeSpecificPath))}`);
       await fs.ensureDir(modeSpecificPath);
-      spinner.succeed(`Rule directory structure ensured for mode '${mode}'.`);
+      this.uiManager.succeedSpinner(`Rule directory structure ensured for mode '${mode}'.`);
     } catch (error: unknown) {
-      spinner.fail('Failed to ensure rule directory structure.');
+      this.uiManager.failSpinner('Failed to ensure rule directory structure.');
       handleError(error, {
         context: `ensuring rule directory structure for mode '${mode}' (paths: ${rooPath}, ${rulesPath}, ${modeSpecificPath})`.replace(new RegExp(process.cwd(), 'g'), '.'),
         // Alternatively, pick one primary path for filePath if more suitable for ErrorHandlerOptions
@@ -394,7 +392,7 @@ export class FileManager {
     // but good for robustness of this method if called independently.
     await this.createDirectoryIfNotExists(targetModePath); // Uses existing method
 
-    const spinner = oraDefault(`Copying rule files for mode ${mode}...`).start();
+    this.uiManager.startSpinner(`Copying rule files for mode ${mode}...`);
     let filesCopied = 0;
     let filesSkipped = 0;
 
@@ -404,7 +402,7 @@ export class FileManager {
         const destinationFilePath = path.join(targetModePath, ruleFileName);
         const relativeDestPath = path.relative(process.cwd(), destinationFilePath);
 
-        spinner.text = `Processing ${this.uiManager.chalk.cyan(ruleFileName)}...`;
+        this.uiManager.updateSpinnerText(`Processing ${this.uiManager.chalk.cyan(ruleFileName)}...`);
 
         const destinationExists = await fs.pathExists(destinationFilePath);
 
@@ -433,7 +431,7 @@ export class FileManager {
             // Warning is already printed by copyFile's error handling
           } else {
             // For other errors during copy, rethrow to stop the whole process
-            spinner.fail(`Critical error copying file: ${ruleFileName}`);
+            this.uiManager.failSpinner(`Critical error copying file: ${ruleFileName}`);
             // Pass the error directly to handleError
             handleError(copyError, { context: `copying rule file: ${ruleFileName}` });
             throw copyError; // Rethrow critical errors
@@ -443,14 +441,14 @@ export class FileManager {
       }
 
       if (ruleFileNames.length > 0) {
-        spinner.succeed(`Rule file copying complete. Copied: ${filesCopied}, Skipped: ${filesSkipped}.`);
+        this.uiManager.succeedSpinner(`Rule file copying complete. Copied: ${filesCopied}, Skipped: ${filesSkipped}.`);
       } else {
-        spinner.info('No rule files specified to copy.');
+        this.uiManager.infoSpinner('No rule files specified to copy.');
       }
 
     } catch (error: unknown) {
       // This catch is for errors rethrown from individual copy failures or other unexpected errors.
-      spinner.fail('An error occurred during rule file copying.');
+      this.uiManager.failSpinner('An error occurred during rule file copying.');
       // handleError would have been called by the inner try-catch for copy errors.
       // If it's a different error, it might need its own handleError call or just rethrow.
       if (!String(error).includes('copying rule file')) { // Avoid double logging if already handled

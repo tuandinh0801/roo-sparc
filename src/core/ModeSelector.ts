@@ -1,6 +1,6 @@
-import Enquirer from 'enquirer';
 import { CategoryDefinition as Category, ModeDefinition as Mode } from '../types/domain.js';
 import { InvalidFlagArgumentError } from '../utils/errorHandler.js';
+import { UIManager } from '../utils/uiManager.js';
 
 /**
  * Handles interactive mode selection using categories and modes.
@@ -13,8 +13,9 @@ export class ModeSelector {
    * Initializes the ModeSelector with categories and modes.
    * @param categories - An array of Category objects.
    * @param modes - An array of Mode objects.
+   * @param uiManager - Instance of UIManager for UI interactions.
    */
-  constructor(categories: Category[], modes: Mode[]) {
+  constructor(categories: Category[], modes: Mode[], private uiManager: UIManager) {
     this.categories = categories;
     this.modes = modes;
   }
@@ -63,16 +64,13 @@ export class ModeSelector {
       // ask if they want to pick another category.
       if (this.categories.length > 1) { // Only ask if there are other categories to choose from
         try {
-          const confirmResponse: { continue: boolean } = await Enquirer.prompt({
-            type: 'confirm',
-            name: 'continue',
+          keepSelectingCategories = await this.uiManager.promptConfirm({
             message: 'Do you want to select modes from another category?',
-            initial: false,
+            default: false, // UIManager.promptConfirm can take a default
           });
-          keepSelectingCategories = confirmResponse.continue;
         } catch (_) {
           // Handle cancellation of the confirm prompt (e.g., Ctrl+C)
-          console.log('Selection process cancelled.');
+          this.uiManager.printInfo('Selection process cancelled.');
           keepSelectingCategories = false;
         }
       } else {
@@ -90,30 +88,29 @@ export class ModeSelector {
    */
   private async promptForCategory(): Promise<Category | null> {
     if (this.categories.length === 0) {
-      console.warn('No categories available for selection.');
+      this.uiManager.printWarning('No categories available for selection.');
       return null;
     }
 
     try {
-      const response: { categoryName: string } = await Enquirer.prompt({
-        type: 'autocomplete',
-        name: 'categoryName',
+      const categoryChoices = this.categories.map(cat => ({
+        name: `${cat.name} - ${cat.description}`, // Display name and description for the user
+        value: cat.name, // Return the category name as the value
+      }));
+
+      const selectedCategoryName = await this.uiManager.promptList<string>({
         message: 'Select a category:',
-        choices: this.categories.map(cat => ({
-          name: cat.name,
-          message: `${cat.name} - ${cat.description}`, // Display name and description
-          value: cat.name, // Return the category name
-        })),
-        suggest(input: string, choices: any[]) {
-          return choices.filter(choice =>
-            choice.message.toLowerCase().includes(input.toLowerCase())
-          );
-        },
-      } as any); // Cast to any to bypass suggest type issue
-      return this.categories.find(cat => cat.name === response.categoryName) || null;
+        choices: categoryChoices,
+      });
+
+      if (!selectedCategoryName) { // User might cancel (e.g. Ctrl+C in Inquirer)
+        this.uiManager.printInfo('Category selection cancelled.');
+        return null;
+      }
+      return this.categories.find(cat => cat.name === selectedCategoryName) || null;
     } catch (_) {
-      // Handle cancellation (e.g., Ctrl+C)
-      console.log('Category selection cancelled.');
+      // Handle other cancellation (e.g., Ctrl+C)
+      this.uiManager.printInfo('Category selection cancelled.');
       return null;
     }
   }
@@ -127,30 +124,29 @@ export class ModeSelector {
     const modesInCategory = this.modes.filter(mode => mode.categorySlugs.includes(category.slug));
 
     if (modesInCategory.length === 0) {
-      console.warn(`No modes available in category: ${category.name}`);
+      this.uiManager.printWarning(`No modes available in category: ${category.name}`);
       return null;
     }
 
     try {
-      const response: { modeSlug: string } = await Enquirer.prompt({
-        type: 'autocomplete',
-        name: 'modeSlug',
+      const modeChoices = modesInCategory.map(mode => ({
+        name: `${mode.name} (${mode.slug}) - ${mode.description}`, // Display name, slug and description
+        value: mode.slug, // Return the mode slug
+      }));
+
+      const selectedModeSlug = await this.uiManager.promptList<string>({
         message: `Select a mode from ${category.name}:`,
-        choices: modesInCategory.map(mode => ({
-          name: mode.slug,
-          message: `${mode.name} (${mode.slug}) - ${mode.description}`,
-          value: mode.slug,
-        })),
-        suggest(input: string, choices: any[]) {
-          return choices.filter(choice =>
-            choice.message.toLowerCase().includes(input.toLowerCase())
-          );
-        },
-      } as any); // Cast to any to bypass suggest type issue
-      return this.modes.find(mode => mode.slug === response.modeSlug) || null;
+        choices: modeChoices,
+      });
+
+      if (!selectedModeSlug) { // User might cancel
+        this.uiManager.printInfo('Mode selection cancelled.');
+        return null;
+      }
+      return this.modes.find(mode => mode.slug === selectedModeSlug) || null;
     } catch (_) {
-      // Handle cancellation
-      console.log('Mode selection cancelled.');
+      // Handle other cancellation (e.g., Ctrl+C)
+      this.uiManager.printInfo('Mode selection cancelled.');
       return null;
     }
   }
@@ -164,31 +160,31 @@ export class ModeSelector {
     const modesInCategory = this.modes.filter(mode => mode.categorySlugs.includes(category.slug));
 
     if (modesInCategory.length === 0) {
-      console.warn(`No modes available in category: ${category.name}`);
+      this.uiManager.printWarning(`No modes available in category: ${category.name}`);
       return [];
     }
 
     try {
-      const response: { modeSlugs: string[] } = await Enquirer.prompt({
-        type: 'multiselect',
-        name: 'modeSlugs',
-        message: `Select modes from ${category.name}:`,
-        hint: '(Navigate with arrows, <space> to select, <a> to toggle all, <i> to invert, <enter> to confirm)',
-        choices: modesInCategory.map(mode => ({
-          name: mode.slug, // This value is returned in the array for each selected choice
-          message: `${mode.name} (${mode.slug}) - ${mode.description}`, // This is displayed to the user
-        })),
-        validate(value: string[]) {
+      const modeChoices = modesInCategory.map(mode => ({
+        name: `${mode.name} (${mode.slug}) - ${mode.description}`, // This is displayed to the user
+        value: mode.slug, // This value is returned in the array for each selected choice
+        short: mode.name, // Short name for display after selection
+      }));
+
+      const selectedModeSlugs = await this.uiManager.promptCheckbox<string>({
+        message: `Select modes from ${category.name}: (Navigate with arrows, <space> to select, <enter> to confirm)`,
+        choices: modeChoices,
+        validate: (value: string[]) => {
           if (value.length === 0) {
             return 'Please select at least one mode, or cancel (Ctrl+C).';
           }
           return true;
-        }
-      } as any); // Cast to any to bypass validate type issue
-      return response.modeSlugs || []; // Ensure an array is returned, even if prompt somehow resolves with non-array
+        },
+      });
+      return selectedModeSlugs || []; // Ensure an array is returned
     } catch (_) {
       // Handle cancellation (e.g., Ctrl+C)
-      console.log(`Mode selection from category ${category.name} cancelled.`);
+      this.uiManager.printInfo(`Mode selection from category ${category.name} cancelled.`);
       return [];
     }
   }

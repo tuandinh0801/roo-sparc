@@ -8,7 +8,6 @@
     "roo-init": "./bin/roo-init.js"
   },
   "scripts": {
-    "postinstall": "pnpm build",
     "clean": "rimraf ./dist",
     "copy-assets": "node scripts/copy-assets.js",
     "build": "pnpm run clean && tsc && pnpm run copy-assets",
@@ -35,6 +34,7 @@
     "@eslint/js": "^9.26.0",
     "@stylistic/eslint-plugin-ts": "^4.2.0",
     "@types/fs-extra": "^11.0.4",
+    "@types/inquirer": "^9.0.8",
     "@types/mock-fs": "^4.13.4",
     "@types/node": "^22.15.17",
     "@typescript-eslint/eslint-plugin": "^8.32.0",
@@ -53,9 +53,9 @@
     "boxen": "^8.0.1",
     "chalk": "4.1.2",
     "commander": "^12.1.0",
-    "enquirer": "^2.4.1",
     "fs-extra": "^11.3.0",
     "gradient-string": "^3.0.0",
+    "inquirer": "^9.3.7",
     "ora": "^8.2.0",
     "strip-ansi": "^7.1.0",
     "zod": "^3.24.4"

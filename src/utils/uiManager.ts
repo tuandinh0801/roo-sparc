@@ -3,6 +3,15 @@ import chalk from 'chalk';
 import boxen, { Options as BoxenOptions } from 'boxen';
 import ora, { Ora } from 'ora';
 import { pastel } from 'gradient-string';
+import inquirer, {
+  QuestionCollection,
+  InputQuestionOptions,
+  ListQuestionOptions,
+  CheckboxQuestionOptions,
+  ConfirmQuestionOptions,
+  EditorQuestionOptions,
+  Answers
+} from 'inquirer';
 
 type ChalkInstance = typeof chalk;
 // BoxenOptions is now directly imported
@@ -15,9 +24,11 @@ type ChalkInstance = typeof chalk;
 export class UIManager {
   public chalk: ChalkInstance;
   private spinner: Ora | null = null; // Add ora instance
+  private inquirer: typeof inquirer;
 
   constructor() {
     this.chalk = chalk;
+    this.inquirer = inquirer;
   }
 
   // --- Banner ---
@@ -87,6 +98,38 @@ export class UIManager {
   public failSpinner(text?: string): void {
     if (this.spinner) {
       this.spinner.fail(text);
+      this.spinner = null;
+    }
+  }
+
+  /**
+   * Updates the text of the current spinner.
+   * @param {string} newText - The new text to display.
+   */
+  public updateSpinnerText(newText: string): void {
+    if (this.spinner) {
+      this.spinner.text = newText;
+    }
+  }
+
+  /**
+   * Stops the current spinner and marks it with an informational message.
+   * @param {string} [text] - Optional text to display.
+   */
+  public infoSpinner(text?: string): void {
+    if (this.spinner) {
+      this.spinner.info(text);
+      this.spinner = null;
+    }
+  }
+
+  /**
+   * Stops the current spinner and marks it with a warning message.
+   * @param {string} [text] - Optional text to display.
+   */
+  public warnSpinner(text?: string): void {
+    if (this.spinner) {
+      this.spinner.warn(text);
       this.spinner = null;
     }
   }
@@ -176,5 +219,84 @@ export class UIManager {
       titleAlignment: 'center',
     };
     console.warn(boxen(this.chalk.yellow(message), boxenOptions));
+  }
+
+  // --- Prompt Methods ---
+
+  /**
+   * Prompts the user for input.
+   * @param {Omit<InputQuestionOptions, 'name' | 'type'> & { message: string }} options - Options for the input prompt, including the message to display.
+   * @returns {Promise<string>} A promise that resolves with the user's input.
+   */
+  public async promptInput(options: Omit<InputQuestionOptions, 'name' | 'type'> & { message: string }): Promise<string> {
+    const question: InputQuestionOptions = {
+      type: 'input',
+      name: 'userInput',
+      ...options,
+    };
+    const answers: Answers = await this.inquirer.prompt([question]);
+    return answers.userInput as string;
+  }
+
+  /**
+   * Prompts the user to select an item from a list.
+   * @template T The type of the choice values.
+   * @param {Omit<ListQuestionOptions, 'name' | 'type'> & { message: string; choices: any[] }} options - Options for the list prompt, including the message and choices.
+   * @returns {Promise<T>} A promise that resolves with the user's selected item.
+   */
+  public async promptList<T = string>(options: Omit<ListQuestionOptions, 'name' | 'type'> & { message: string; choices: any[] }): Promise<T> {
+    const question: ListQuestionOptions = {
+      type: 'list',
+      name: 'userChoice',
+      ...options,
+    };
+    const answers: Answers = await this.inquirer.prompt([question]);
+    return answers.userChoice as T;
+  }
+
+  /**
+   * Prompts the user to select multiple items from a list.
+   * @template T The type of the choice values.
+   * @param {Omit<CheckboxQuestionOptions, 'name' | 'type'> & { message: string; choices: any[] }} options - Options for the checkbox prompt, including the message and choices.
+   * @returns {Promise<T[]>} A promise that resolves with the user's selected items.
+   */
+  public async promptCheckbox<T = string>(options: Omit<CheckboxQuestionOptions, 'name' | 'type'> & { message: string; choices: any[] }): Promise<T[]> {
+    const question: CheckboxQuestionOptions = {
+      type: 'checkbox',
+      name: 'userChoices',
+      ...options,
+    };
+    const answers: Answers = await this.inquirer.prompt([question]);
+    return answers.userChoices as T[];
+  }
+
+  /**
+   * Prompts the user for a yes/no confirmation.
+   * @param {Omit<ConfirmQuestionOptions, 'name' | 'type'> & { message: string }} options - Options for the confirm prompt, including the message to display.
+   * @returns {Promise<boolean>} A promise that resolves with the user's confirmation (true for yes, false for no).
+   */
+  public async promptConfirm(options: Omit<ConfirmQuestionOptions, 'name' | 'type'> & { message: string }): Promise<boolean> {
+    const question: ConfirmQuestionOptions = {
+      type: 'confirm',
+      name: 'userConfirmation',
+      ...options,
+    };
+    const answers: Answers = await this.inquirer.prompt([question]);
+    return answers.userConfirmation as boolean;
+  }
+
+  /**
+   * Prompts the user to input text using an editor.
+   * @param {Omit<EditorQuestionOptions, 'name' | 'type'> & { message: string }} options - Options for the editor prompt, including the message to display.
+   * @returns {Promise<string>} A promise that resolves with the user's editor input.
+   */
+  public async promptEditor(options: Omit<EditorQuestionOptions, 'name' | 'type'> & { message: string }): Promise<string> {
+    const question: EditorQuestionOptions = {
+      type: 'editor',
+      name: 'editorInput',
+      ...options,
+    };
+    const answers: Answers = await this.inquirer.prompt([question]);
+    return answers.editorInput as string;
   }
 }

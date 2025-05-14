@@ -81,6 +81,11 @@ Please refer to the main project's contributing guidelines.
 
 For more detailed documentation, including installation, usage, core concepts, and architecture, please see the [guides/](guides/) directory.
 
+## Roadmap
+
+[ ] CRUD modes and categories
+[ ] Backup and restore
+
 ## License
 
 This project is licensed under the [ISC License](LICENSE).

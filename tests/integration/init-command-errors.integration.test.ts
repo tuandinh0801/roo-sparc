@@ -36,8 +36,8 @@ vi.mock('fs-extra', async() => {
   };
 });
 
-// --- Mock enquirer ---
-vi.mock('enquirer', () => ({
+// --- Mock inquirer ---
+vi.mock('inquirer', () => ({
   default: {
     prompt: vi.fn(),
   },
@@ -65,7 +65,14 @@ vi.mock('../../src/utils/uiManager.js', () => {
         printWarning: mockUiPrintWarning,   // Warnings like OverwriteConflict
         printInfo: vi.fn(),
         printAbortMessage: mockUiPrintAbortMessage,
-        chalk: chalk,
+        printBanner: vi.fn(),
+        chalk: {
+          cyan: vi.fn((str: string) => str),
+          yellow: vi.fn((str: string) => str),
+          green: vi.fn((str: string) => str),
+          red: vi.fn((str: string) => str),
+          bold: vi.fn((str: string) => str),
+        },
       };
     }),
   };
@@ -137,8 +144,8 @@ describe('roo-init Command - Error Handling Integration Tests', () => {
       }],
     });
 
-    const enquirer = await import('enquirer');
-    vi.mocked(enquirer.default.prompt).mockReset();
+    const inquirer = await import('inquirer');
+    vi.mocked(inquirer.default.prompt).mockReset();
 
     // Use actual fs-extra for creating the temp directory for the test environment
     await actualFsForSetup.ensureDir(tempTestDir);
@@ -155,8 +162,8 @@ describe('roo-init Command - Error Handling Integration Tests', () => {
   });
 
   it('should display success message and exit with 0 on successful initialization', async() => {
-    const enquirer = await import('enquirer');
-    vi.mocked(enquirer.default.prompt).mockResolvedValue({ confirm: true });
+    const inquirer = await import('inquirer');
+    vi.mocked(inquirer.default.prompt).mockResolvedValue({ confirm: true });
 
     // Set up mock path exists for success case
     vi.mocked(fsMocked.pathExists).mockImplementation(async(p: string) => {
@@ -287,8 +294,8 @@ describe('roo-init Command - Error Handling Integration Tests', () => {
       }
       return await originalPathExistsOverwrite(p); // Delegate for others
     });
-    const enquirer = await import('enquirer');
-    vi.mocked(enquirer.default.prompt).mockResolvedValue({ confirm: false });
+    const inquirer = await import('inquirer');
+    vi.mocked(inquirer.default.prompt).mockResolvedValue({ confirm: false });
 
     // Directly mock the abort message call
     vi.mocked(mockUiPrintAbortMessage).mockImplementation(() => {});
@@ -309,10 +316,10 @@ describe('roo-init Command - Error Handling Integration Tests', () => {
   });
 
   it('should handle user abort (Ctrl+C) during prompt and exit with 1', async() => {
-    const enquirer = await import('enquirer');
+    const inquirer = await import('inquirer');
     const abortError = new Error('User Canceled'); // Give it a message
     // No need to mark isUserAbortError if the main handler catches generic errors from prompt
-    vi.mocked(enquirer.default.prompt).mockRejectedValue(abortError);
+    vi.mocked(inquirer.default.prompt).mockRejectedValue(abortError);
 
     // Directly mock the abort message call
     vi.mocked(mockUiPrintAbortMessage).mockImplementation(() => {});
@@ -344,14 +351,14 @@ describe('roo-init Command - Error Handling Integration Tests', () => {
     const sourceRulePath = path.join(sourceModeSpecificRulesDir, ruleFileName);
 
     beforeEach(async() => {
-      // Ensure enquirer is available for mocking in each test
-      const enquirer = await import('enquirer');
+      // Ensure inquirer is available for mocking in each test
+      const inquirer = await import('inquirer');
       // Default mock for mode selection prompt for this suite
       // Based on DefinitionLoader mock, we have one category "Test Category" (slug 'test-cat')
       // and one mode "test-mode" associated with it.
       // ModeSelector should first prompt for category, then modes from that category.
       // Since there's only one category with modes, the "continue" prompt should be skipped.
-      vi.mocked(enquirer.default.prompt)
+      vi.mocked(inquirer.default.prompt)
         .mockResolvedValueOnce({ categoryName: 'Test Category' }) // User selects the category by its name
         .mockResolvedValueOnce({ modeSlugs: [modeSlug] });     // User selects the mode 'test-mode' (modeSlug variable)
 

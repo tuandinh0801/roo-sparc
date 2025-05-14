@@ -38,7 +38,7 @@ describe('CLI Integration Tests', () => {
   let mockProcessExit: MockInstance<[code?: string | number | null | undefined], never>;
   let originalArgv: string[];
   let mockUiManagerInstance: any; // To hold the mocked instance
-  
+
   // Define mock data for tests
   const mockRule: Rule = {
     id: 'mock-rule',
@@ -52,7 +52,7 @@ describe('CLI Integration Tests', () => {
     { name: 'Test Mode 1', slug: 'test-mode-1', description: 'Desc 1', categorySlugs: ['cat1'], associatedRuleFiles: [mockRule], customInstructions: 'CI Test Mode 1', groups: ['groupA'], source: 'project' },
     { name: 'Test Mode 2', slug: 'test-mode-2', description: 'Desc 2', categorySlugs: ['cat2'], associatedRuleFiles: [], customInstructions: 'CI Test Mode 2', groups: ['groupB', 'groupC'], source: 'system' },
   ];
-  
+
   const mockCategories: CategoryDefinition[] = [
     { name: 'Category 1', slug: 'cat1', description: 'Desc Cat 1' },
     { name: 'Category 2', slug: 'cat2', description: 'Desc Cat 2' },
@@ -70,6 +70,7 @@ describe('CLI Integration Tests', () => {
     // Setup UIManager mock
     const { UIManager } = await import('../src/utils/uiManager.js');
     mockUiManagerInstance = {
+      printBanner: vi.fn(), // Add the missing printBanner method
       startSpinner: vi.fn(),
       stopSpinner: vi.fn(),
       succeedSpinner: vi.fn(),

@@ -1,19 +1,22 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
-import Enquirer from 'enquirer';
+// Enquirer is no longer directly used by ModeSelector, UIManager is.
+// import Enquirer from 'inquirer';
 import { ModeSelector } from '../../src/core/ModeSelector.js';
 import { CategoryDefinition as Category, ModeDefinition as Mode } from '../../src/types/domain.js';
+import { UIManager } from '../../src/utils/uiManager.js';
 
-// Mock the Enquirer module
-vi.mock('enquirer', () => {
-  // Default export is the Enquirer class, prompt is a static method or method on an instance
-  // Based on ModeSelector, it's used as `Enquirer.prompt`
-  return {
-    default: {
-      prompt: vi.fn(),
-    },
-    prompt: vi.fn(), // If Enquirer is used as a namespace
-  };
-});
+// Mock UIManager methods that will be called by ModeSelector
+const mockUiManager = {
+  promptConfirm: vi.fn(),
+  promptList: vi.fn(),
+  promptCheckbox: vi.fn(),
+  printWarning: vi.fn(),
+  printInfo: vi.fn(),
+  // Add other UIManager methods if they are called and need mocking
+} as unknown as UIManager; // Cast to UIManager to satisfy constructor
+
+// We don't need to mock 'inquirer' anymore at this level if ModeSelector only uses UIManager
+// vi.mock('inquirer', () => { ... });
 
 const mockCategories: Category[] = [
   { slug: 'cat1', name: 'Category 1', description: 'Description for Cat 1' },
@@ -27,171 +30,179 @@ const mockModes: Mode[] = [
   { slug: 'mode1-cat2', name: 'Mode 1 (Cat 2)', description: 'Desc for Mode 1 Cat 2', categorySlugs: ['cat2'], associatedRuleFiles: [] },
 ];
 
-// Helper to access the mock
-const mockedEnquirerPrompt = Enquirer.prompt as Mock;
+// We don't need a direct mock for Enquirer.prompt anymore as ModeSelector uses UIManager.
+// const mockedEnquirerPrompt = Enquirer.prompt as unknown as Mock;
 
 describe('ModeSelector', () => {
   let modeSelector: ModeSelector;
 
   beforeEach(() => {
     vi.clearAllMocks(); // Clear mocks before each test
-    modeSelector = new ModeSelector(mockCategories, mockModes);
+    // Pass the mocked UIManager instance
+    modeSelector = new ModeSelector(mockCategories, mockModes, mockUiManager);
   });
 
   describe('selectModesInteractively', () => {
     it('should return selected mode slugs when user selects one mode from one category and stops', async() => {
-      mockedEnquirerPrompt
-        .mockResolvedValueOnce({ categoryName: 'Category 1' }) // First call: select category
-        .mockResolvedValueOnce({ modeSlugs: ['mode1-cat1'] }) // Second call: select modes from Category 1
-        .mockResolvedValueOnce({ continue: false }); // Third call: do not continue
+      (mockUiManager.promptList as Mock)
+        .mockResolvedValueOnce('Category 1'); // First call: select category
+      (mockUiManager.promptCheckbox as Mock)
+        .mockResolvedValueOnce(['mode1-cat1']); // Second call: select modes from Category 1
+      (mockUiManager.promptConfirm as Mock)
+        .mockResolvedValueOnce(false); // Third call: do not continue
 
       const selectedModes = await modeSelector.selectModesInteractively();
       expect(selectedModes).toEqual(['mode1-cat1']);
-      expect(mockedEnquirerPrompt).toHaveBeenCalledTimes(3);
+      expect(mockUiManager.promptList).toHaveBeenCalledTimes(1);
+      expect(mockUiManager.promptCheckbox).toHaveBeenCalledTimes(1);
+      expect(mockUiManager.promptConfirm).toHaveBeenCalledTimes(1);
     });
 
     it('should return selected mode slugs when user selects multiple modes from one category and stops', async() => {
-      mockedEnquirerPrompt
-        .mockResolvedValueOnce({ categoryName: 'Category 1' })
-        .mockResolvedValueOnce({ modeSlugs: ['mode1-cat1', 'mode2-cat1'] })
-        .mockResolvedValueOnce({ continue: false });
+      (mockUiManager.promptList as Mock)
+        .mockResolvedValueOnce('Category 1');
+      (mockUiManager.promptCheckbox as Mock)
+        .mockResolvedValueOnce(['mode1-cat1', 'mode2-cat1']);
+      (mockUiManager.promptConfirm as Mock)
+        .mockResolvedValueOnce(false);
 
       const selectedModes = await modeSelector.selectModesInteractively();
       expect(selectedModes).toEqual(['mode1-cat1', 'mode2-cat1']);
-      expect(mockedEnquirerPrompt).toHaveBeenCalledTimes(3);
+      expect(mockUiManager.promptList).toHaveBeenCalledTimes(1);
+      expect(mockUiManager.promptCheckbox).toHaveBeenCalledTimes(1);
+      expect(mockUiManager.promptConfirm).toHaveBeenCalledTimes(1);
     });
 
     it('should return selected mode slugs from multiple categories', async() => {
-      mockedEnquirerPrompt
-        .mockResolvedValueOnce({ categoryName: 'Category 1' }) // Select Cat 1
-        .mockResolvedValueOnce({ modeSlugs: ['mode1-cat1'] })  // Select modes from Cat 1
-        .mockResolvedValueOnce({ continue: true })           // Choose to continue
-        .mockResolvedValueOnce({ categoryName: 'Category 2' }) // Select Cat 2
-        .mockResolvedValueOnce({ modeSlugs: ['mode1-cat2'] })  // Select modes from Cat 2
-        .mockResolvedValueOnce({ continue: false });          // Choose not to continue
+      (mockUiManager.promptList as Mock)
+        .mockResolvedValueOnce('Category 1') // Select Cat 1
+        .mockResolvedValueOnce('Category 2'); // Select Cat 2
+      (mockUiManager.promptCheckbox as Mock)
+        .mockResolvedValueOnce(['mode1-cat1'])  // Select modes from Cat 1
+        .mockResolvedValueOnce(['mode1-cat2']);  // Select modes from Cat 2
+      (mockUiManager.promptConfirm as Mock)
+        .mockResolvedValueOnce(true)           // Choose to continue
+        .mockResolvedValueOnce(false);          // Choose not to continue
 
       const selectedModes = await modeSelector.selectModesInteractively();
       expect(selectedModes).toEqual(['mode1-cat1', 'mode1-cat2']);
-      expect(mockedEnquirerPrompt).toHaveBeenCalledTimes(6);
+      expect(mockUiManager.promptList).toHaveBeenCalledTimes(2);
+      expect(mockUiManager.promptCheckbox).toHaveBeenCalledTimes(2);
+      expect(mockUiManager.promptConfirm).toHaveBeenCalledTimes(2);
     });
 
     it('should return an empty array if no modes are selected from a category and user stops', async() => {
-      mockedEnquirerPrompt
-        .mockResolvedValueOnce({ categoryName: 'Category 1' })
-        .mockResolvedValueOnce({ modeSlugs: [] }) // No modes selected from Category 1
-        .mockResolvedValueOnce({ continue: false });
+      (mockUiManager.promptList as Mock)
+        .mockResolvedValueOnce('Category 1');
+      (mockUiManager.promptCheckbox as Mock)
+        .mockResolvedValueOnce([]); // No modes selected
+      (mockUiManager.promptConfirm as Mock)
+        .mockResolvedValueOnce(false);
 
       const selectedModes = await modeSelector.selectModesInteractively();
       expect(selectedModes).toEqual([]);
-      expect(mockedEnquirerPrompt).toHaveBeenCalledTimes(3);
+      expect(mockUiManager.promptList).toHaveBeenCalledTimes(1);
+      expect(mockUiManager.promptCheckbox).toHaveBeenCalledTimes(1);
+      expect(mockUiManager.promptConfirm).toHaveBeenCalledTimes(1);
     });
 
     it('should return an empty array if user cancels category selection', async() => {
-      // Simulate cancellation by having promptForCategory return null,
-      // which happens if Enquirer.prompt throws or returns a value that doesn't match a category.
-      // For simplicity, we'll mock the internal call to return null.
-      // This requires a more complex mock if Enquirer.prompt itself throws.
-      // Let's assume cancellation means Enquirer.prompt returns a value that leads to `null` from `promptForCategory`.
-      // The `selectModesInteractively` loop breaks if `promptForCategory` returns null.
-      mockedEnquirerPrompt.mockImplementation(async(promptConfig: any) => {
-        if (promptConfig.name === 'categoryName') {
-          // Simulate cancellation or no selection for category
-          // This could be a throw or a specific return value that promptForCategory handles as null
-          // For this test, let's assume it resolves to something that makes promptForCategory return null
-          // A direct throw from Enquirer.prompt is handled by try/catch in promptForCategory
-          throw new Error('User cancelled'); // Simulate Ctrl+C
-        }
-        // Fallback for other prompts if any, though not expected here
-        return {};
-      });
-
-      // Or, more directly, mock the first category prompt to return something that results in null
-      // For the current implementation, if Enquirer.prompt throws, promptForCategory returns null
-      mockedEnquirerPrompt.mockRejectedValueOnce(new Error('User cancelled category selection'));
-
+      // Simulate cancellation by having promptList return null or undefined
+      (mockUiManager.promptList as Mock).mockResolvedValueOnce(null);
 
       const selectedModes = await modeSelector.selectModesInteractively();
       expect(selectedModes).toEqual([]);
-      // Only category prompt should be called
-      expect(mockedEnquirerPrompt).toHaveBeenCalledTimes(1);
-      expect(mockedEnquirerPrompt.mock.calls[0][0].name).toBe('categoryName');
+      expect(mockUiManager.promptList).toHaveBeenCalledTimes(1);
+      expect(mockUiManager.promptCheckbox).not.toHaveBeenCalled();
+      expect(mockUiManager.promptConfirm).not.toHaveBeenCalled();
+      expect(mockUiManager.printInfo).toHaveBeenCalledWith('Category selection cancelled.');
     });
 
+
     it('should return an empty array if user cancels mode selection from a category and then stops', async() => {
-      mockedEnquirerPrompt
-        .mockResolvedValueOnce({ categoryName: 'Category 1' }) // Select category
-        .mockRejectedValueOnce(new Error('User cancelled mode selection')) // Cancel mode selection
-        .mockResolvedValueOnce({ continue: false }); // Stop
+      (mockUiManager.promptList as Mock)
+        .mockResolvedValueOnce('Category 1'); // Select category
+      (mockUiManager.promptCheckbox as Mock)
+        .mockRejectedValueOnce(new Error('User cancelled mode selection')); // Cancel mode selection
+      (mockUiManager.promptConfirm as Mock)
+        .mockResolvedValueOnce(false); // Stop
 
       const selectedModes = await modeSelector.selectModesInteractively();
       expect(selectedModes).toEqual([]); // No modes should be added
-      expect(mockedEnquirerPrompt).toHaveBeenCalledTimes(3);
-      expect(mockedEnquirerPrompt.mock.calls[0][0].name).toBe('categoryName');
-      expect(mockedEnquirerPrompt.mock.calls[1][0].name).toBe('modeSlugs');
-      expect(mockedEnquirerPrompt.mock.calls[2][0].name).toBe('continue');
+      expect(mockUiManager.promptList).toHaveBeenCalledTimes(1);
+      expect(mockUiManager.promptCheckbox).toHaveBeenCalledTimes(1);
+      expect(mockUiManager.promptConfirm).toHaveBeenCalledTimes(1);
+      expect(mockUiManager.printInfo).toHaveBeenCalledWith('Mode selection from category Category 1 cancelled.');
     });
 
     it('should handle category with no modes gracefully and allow continuing or stopping', async() => {
-      mockedEnquirerPrompt
-        .mockResolvedValueOnce({ categoryName: 'Category 3 No Modes' }) // Select category with no modes
-        // promptForModesFromCategory will return [] without calling Enquirer
-        .mockResolvedValueOnce({ continue: false }); // Choose not to continue
+      (mockUiManager.promptList as Mock)
+        .mockResolvedValueOnce('Category 3 No Modes'); // Select category with no modes
+      // promptForModesFromCategory will return [] without calling UIManager.promptCheckbox
+      (mockUiManager.promptConfirm as Mock)
+        .mockResolvedValueOnce(false); // Choose not to continue
 
       const selectedModes = await modeSelector.selectModesInteractively();
       expect(selectedModes).toEqual([]);
-      // Category prompt, then continue prompt
-      expect(mockedEnquirerPrompt).toHaveBeenCalledTimes(2);
-      expect(mockedEnquirerPrompt.mock.calls[0][0].name).toBe('categoryName');
-      expect(mockedEnquirerPrompt.mock.calls[1][0].name).toBe('continue');
+      expect(mockUiManager.promptList).toHaveBeenCalledTimes(1);
+      expect(mockUiManager.promptCheckbox).not.toHaveBeenCalled(); // Not called for empty category
+      expect(mockUiManager.promptConfirm).toHaveBeenCalledTimes(1);
+      expect(mockUiManager.printWarning).toHaveBeenCalledWith('No modes available in category: Category 3 No Modes');
     });
 
     it('should handle "no modes selected" overall if user navigates but selects nothing and stops', async() => {
-      mockedEnquirerPrompt
-        .mockResolvedValueOnce({ categoryName: 'Category 1' }) // Select Cat 1
-        .mockResolvedValueOnce({ modeSlugs: [] })             // Select no modes from Cat 1
-        .mockResolvedValueOnce({ continue: true })            // Choose to continue
-        .mockResolvedValueOnce({ categoryName: 'Category 2' }) // Select Cat 2
-        .mockResolvedValueOnce({ modeSlugs: [] })             // Select no modes from Cat 2
-        .mockResolvedValueOnce({ continue: false });           // Choose not to continue
+      (mockUiManager.promptList as Mock)
+        .mockResolvedValueOnce('Category 1') // Select Cat 1
+        .mockResolvedValueOnce('Category 2'); // Select Cat 2
+      (mockUiManager.promptCheckbox as Mock)
+        .mockResolvedValueOnce([])             // Select no modes from Cat 1
+        .mockResolvedValueOnce([]);             // Select no modes from Cat 2
+      (mockUiManager.promptConfirm as Mock)
+        .mockResolvedValueOnce(true)            // Choose to continue
+        .mockResolvedValueOnce(false);           // Choose not to continue
 
       const selectedModes = await modeSelector.selectModesInteractively();
-      expect(selectedModes).toEqual([]); // AC5
-      expect(mockedEnquirerPrompt).toHaveBeenCalledTimes(6);
+      expect(selectedModes).toEqual([]);
+      expect(mockUiManager.promptList).toHaveBeenCalledTimes(2);
+      expect(mockUiManager.promptCheckbox).toHaveBeenCalledTimes(2);
+      expect(mockUiManager.promptConfirm).toHaveBeenCalledTimes(2);
     });
 
     it('should correctly form choices for category prompt', async() => {
-      mockedEnquirerPrompt.mockResolvedValueOnce({ categoryName: 'Category 1' })
-        .mockResolvedValueOnce({ modeSlugs: [] })
-        .mockResolvedValueOnce({ continue: false });
+      (mockUiManager.promptList as Mock)
+        .mockResolvedValueOnce('Category 1');
+      (mockUiManager.promptCheckbox as Mock)
+        .mockResolvedValueOnce([]);
+      (mockUiManager.promptConfirm as Mock)
+        .mockResolvedValueOnce(false);
 
       await modeSelector.selectModesInteractively();
 
-      expect(mockedEnquirerPrompt).toHaveBeenCalledWith(expect.objectContaining({
-        name: 'categoryName',
-        type: 'autocomplete',
+      expect(mockUiManager.promptList).toHaveBeenCalledWith(expect.objectContaining({
         message: 'Select a category:',
         choices: [
-          { name: 'Category 1', message: 'Category 1 - Description for Cat 1', value: 'Category 1' },
-          { name: 'Category 2', message: 'Category 2 - Description for Cat 2', value: 'Category 2' },
-          { name: 'Category 3 No Modes', message: 'Category 3 No Modes - Description for Cat 3', value: 'Category 3 No Modes' },
+          { name: 'Category 1 - Description for Cat 1', value: 'Category 1' },
+          { name: 'Category 2 - Description for Cat 2', value: 'Category 2' },
+          { name: 'Category 3 No Modes - Description for Cat 3', value: 'Category 3 No Modes' },
         ]
       }));
     });
 
     it('should correctly form choices for mode prompt', async() => {
-      mockedEnquirerPrompt.mockResolvedValueOnce({ categoryName: 'Category 1' }) // User selects 'Category 1'
-        .mockResolvedValueOnce({ modeSlugs: ['mode1-cat1'] })   // User selects 'mode1-cat1'
-        .mockResolvedValueOnce({ continue: false });            // User stops
+      (mockUiManager.promptList as Mock)
+        .mockResolvedValueOnce('Category 1'); // User selects 'Category 1'
+      (mockUiManager.promptCheckbox as Mock)
+        .mockResolvedValueOnce(['mode1-cat1']);   // User selects 'mode1-cat1'
+      (mockUiManager.promptConfirm as Mock)
+        .mockResolvedValueOnce(false);            // User stops
 
       await modeSelector.selectModesInteractively();
 
-      expect(mockedEnquirerPrompt).toHaveBeenCalledWith(expect.objectContaining({
-        name: 'modeSlugs',
-        type: 'multiselect',
-        message: 'Select modes from Category 1:',
+      expect(mockUiManager.promptCheckbox).toHaveBeenCalledWith(expect.objectContaining({
+        message: 'Select modes from Category 1: (Navigate with arrows, <space> to select, <enter> to confirm)',
         choices: [
-          { name: 'mode1-cat1', message: 'Mode 1 (Cat 1) (mode1-cat1) - Desc for Mode 1 Cat 1' },
-          { name: 'mode2-cat1', message: 'Mode 2 (Cat 1) (mode2-cat1) - Desc for Mode 2 Cat 1' },
+          { name: 'Mode 1 (Cat 1) (mode1-cat1) - Desc for Mode 1 Cat 1', value: 'mode1-cat1', short: 'Mode 1 (Cat 1)' },
+          { name: 'Mode 2 (Cat 1) (mode2-cat1) - Desc for Mode 2 Cat 1', value: 'mode2-cat1', short: 'Mode 2 (Cat 1)' },
         ]
       }));
     });
@@ -199,58 +210,67 @@ describe('ModeSelector', () => {
     it('should stop asking to continue if only one category exists', async() => {
       const singleCategorySelector = new ModeSelector(
         [mockCategories[0]], // Only Category 1
-        mockModes.filter(m => m.categorySlugs.includes('cat1'))
+        mockModes.filter(m => m.categorySlugs.includes('cat1')),
+        mockUiManager // Pass mock UIManager
       );
-      mockedEnquirerPrompt
-        .mockResolvedValueOnce({ categoryName: 'Category 1' })
-        .mockResolvedValueOnce({ modeSlugs: ['mode1-cat1'] });
-      // No "continue" prompt should be called
+      (mockUiManager.promptList as Mock)
+        .mockResolvedValueOnce('Category 1');
+      (mockUiManager.promptCheckbox as Mock)
+        .mockResolvedValueOnce(['mode1-cat1']);
+      // No "continue" prompt (promptConfirm) should be called
 
       const selectedModes = await singleCategorySelector.selectModesInteractively();
       expect(selectedModes).toEqual(['mode1-cat1']);
-      expect(mockedEnquirerPrompt).toHaveBeenCalledTimes(2); // Category select, Mode select
+      expect(mockUiManager.promptList).toHaveBeenCalledTimes(1);
+      expect(mockUiManager.promptCheckbox).toHaveBeenCalledTimes(1);
+      expect(mockUiManager.promptConfirm).not.toHaveBeenCalled(); // Key check
     });
 
   });
 
   describe('selectModesNonInteractively', () => {
+    // These tests don't involve UI prompts, so they should remain largely unchanged
+    // and not call any of the mockUiManager prompt methods.
+    beforeEach(() => {
+      // Ensure prompt mocks are not called for non-interactive tests
+      vi.mocked(mockUiManager.promptConfirm).mockClear();
+      vi.mocked(mockUiManager.promptList).mockClear();
+      vi.mocked(mockUiManager.promptCheckbox).mockClear();
+    });
+
     it('should return mode slugs specified by --modes flag', async() => {
       const result = await modeSelector.selectModesNonInteractively({ modes: 'mode1-cat1,mode2-cat1' });
       expect(result.selectedModes).toEqual(['mode1-cat1', 'mode2-cat1']);
       expect(result.invalidModeSlugs).toEqual([]);
       expect(result.invalidCategorySlugs).toEqual([]);
-      expect(mockedEnquirerPrompt).not.toHaveBeenCalled();
+      expect(mockUiManager.promptList).not.toHaveBeenCalled();
     });
 
     it('should return mode slugs from a category specified by --category flag', async() => {
       const result = await modeSelector.selectModesNonInteractively({ category: 'cat1' });
-      // Expecting modes from cat1: mode1-cat1, mode2-cat1
       expect(result.selectedModes).toEqual(expect.arrayContaining(['mode1-cat1', 'mode2-cat1']));
       expect(result.selectedModes.length).toBe(2);
       expect(result.invalidModeSlugs).toEqual([]);
       expect(result.invalidCategorySlugs).toEqual([]);
-      expect(mockedEnquirerPrompt).not.toHaveBeenCalled();
+      expect(mockUiManager.promptList).not.toHaveBeenCalled();
     });
 
     it('should return unique mode slugs from both --modes and --category flags', async() => {
       const result = await modeSelector.selectModesNonInteractively({ modes: 'mode1-cat1', category: 'cat2' });
-      // mode1-cat1 from --modes, mode1-cat2 from --category=cat2
       expect(result.selectedModes).toEqual(expect.arrayContaining(['mode1-cat1', 'mode1-cat2']));
       expect(result.selectedModes.length).toBe(2);
       expect(result.invalidModeSlugs).toEqual([]);
       expect(result.invalidCategorySlugs).toEqual([]);
-      expect(mockedEnquirerPrompt).not.toHaveBeenCalled();
+      expect(mockUiManager.promptList).not.toHaveBeenCalled();
     });
 
     it('should handle overlapping slugs between --modes and --category, returning unique modes', async() => {
       const result = await modeSelector.selectModesNonInteractively({ modes: 'mode1-cat1,mode1-cat2', category: 'cat1' });
-      // mode1-cat1, mode1-cat2 from --modes. cat1 includes mode1-cat1, mode2-cat1.
-      // Expected unique: mode1-cat1, mode1-cat2, mode2-cat1
       expect(result.selectedModes).toEqual(expect.arrayContaining(['mode1-cat1', 'mode1-cat2', 'mode2-cat1']));
       expect(result.selectedModes.length).toBe(3);
       expect(result.invalidModeSlugs).toEqual([]);
       expect(result.invalidCategorySlugs).toEqual([]);
-      expect(mockedEnquirerPrompt).not.toHaveBeenCalled();
+      expect(mockUiManager.promptList).not.toHaveBeenCalled();
     });
 
     it('should return invalid slugs if --modes contains non-existent slugs', async() => {
@@ -258,27 +278,25 @@ describe('ModeSelector', () => {
       expect(result.selectedModes).toEqual(['mode1-cat1']);
       expect(result.invalidModeSlugs).toEqual(['invalid-mode', 'another-invalid']);
       expect(result.invalidCategorySlugs).toEqual([]);
-      expect(mockedEnquirerPrompt).not.toHaveBeenCalled();
+      expect(mockUiManager.promptList).not.toHaveBeenCalled();
     });
 
     it('should return invalid category slugs if --category contains non-existent slugs', async() => {
       const result = await modeSelector.selectModesNonInteractively({ category: 'cat1,invalid-cat,another-invalid-cat' });
       expect(result.selectedModes).toEqual(expect.arrayContaining(['mode1-cat1', 'mode2-cat1']));
-      expect(result.selectedModes.length).toBe(2); // modes from cat1
+      expect(result.selectedModes.length).toBe(2);
       expect(result.invalidModeSlugs).toEqual([]);
       expect(result.invalidCategorySlugs).toEqual(['invalid-cat', 'another-invalid-cat']);
-      expect(mockedEnquirerPrompt).not.toHaveBeenCalled();
+      expect(mockUiManager.promptList).not.toHaveBeenCalled();
     });
 
     it('should handle both valid and invalid slugs for --modes and --category', async() => {
       const result = await modeSelector.selectModesNonInteractively({ modes: 'mode1-cat1,invalid-mode', category: 'cat2,invalid-cat' });
-      // mode1-cat1 from --modes. mode1-cat2 from --category=cat2.
-      // Expected unique: mode1-cat1, mode1-cat2
       expect(result.selectedModes).toEqual(expect.arrayContaining(['mode1-cat1', 'mode1-cat2']));
       expect(result.selectedModes.length).toBe(2);
       expect(result.invalidModeSlugs).toEqual(['invalid-mode']);
       expect(result.invalidCategorySlugs).toEqual(['invalid-cat']);
-      expect(mockedEnquirerPrompt).not.toHaveBeenCalled();
+      expect(mockUiManager.promptList).not.toHaveBeenCalled();
     });
 
     it('should return empty selectedModes and no invalids if --modes is an empty string', async() => {
@@ -286,7 +304,7 @@ describe('ModeSelector', () => {
       expect(result.selectedModes).toEqual([]);
       expect(result.invalidModeSlugs).toEqual([]);
       expect(result.invalidCategorySlugs).toEqual([]);
-      expect(mockedEnquirerPrompt).not.toHaveBeenCalled();
+      expect(mockUiManager.promptList).not.toHaveBeenCalled();
     });
 
     it('should return empty selectedModes and no invalids if --category is an empty string', async() => {
@@ -294,7 +312,7 @@ describe('ModeSelector', () => {
       expect(result.selectedModes).toEqual([]);
       expect(result.invalidModeSlugs).toEqual([]);
       expect(result.invalidCategorySlugs).toEqual([]);
-      expect(mockedEnquirerPrompt).not.toHaveBeenCalled();
+      expect(mockUiManager.promptList).not.toHaveBeenCalled();
     });
 
     it('should return empty selectedModes if both --modes and --category are empty strings', async() => {
@@ -302,7 +320,7 @@ describe('ModeSelector', () => {
       expect(result.selectedModes).toEqual([]);
       expect(result.invalidModeSlugs).toEqual([]);
       expect(result.invalidCategorySlugs).toEqual([]);
-      expect(mockedEnquirerPrompt).not.toHaveBeenCalled();
+      expect(mockUiManager.promptList).not.toHaveBeenCalled();
     });
 
     it('should return empty selectedModes if no flags are provided (options object is empty)', async() => {
@@ -310,7 +328,7 @@ describe('ModeSelector', () => {
       expect(result.selectedModes).toEqual([]);
       expect(result.invalidModeSlugs).toEqual([]);
       expect(result.invalidCategorySlugs).toEqual([]);
-      expect(mockedEnquirerPrompt).not.toHaveBeenCalled();
+      expect(mockUiManager.promptList).not.toHaveBeenCalled();
     });
 
     it('should return empty selectedModes if --modes is undefined', async() => {
@@ -337,7 +355,6 @@ describe('ModeSelector', () => {
 
     it('should handle comma-separated slugs with extra spaces for --category', async() => {
       const result = await modeSelector.selectModesNonInteractively({ category: ' cat1 , cat2 ' });
-      // cat1: mode1-cat1, mode2-cat1. cat2: mode1-cat2
       expect(result.selectedModes).toEqual(expect.arrayContaining(['mode1-cat1', 'mode2-cat1', 'mode1-cat2']));
       expect(result.selectedModes.length).toBe(3);
       expect(result.invalidModeSlugs).toEqual([]);
@@ -346,7 +363,6 @@ describe('ModeSelector', () => {
 
     it('should return modes from multiple categories specified in --category', async() => {
       const result = await modeSelector.selectModesNonInteractively({ category: 'cat1,cat2' });
-      // cat1: mode1-cat1, mode2-cat1. cat2: mode1-cat2
       expect(result.selectedModes).toEqual(expect.arrayContaining(['mode1-cat1', 'mode2-cat1', 'mode1-cat2']));
       expect(result.selectedModes.length).toBe(3);
       expect(result.invalidModeSlugs).toEqual([]);
@@ -355,7 +371,7 @@ describe('ModeSelector', () => {
 
     it('should not call interactive prompts when non-interactive flags are used', async() => {
       await modeSelector.selectModesNonInteractively({ modes: 'mode1-cat1' });
-      expect(mockedEnquirerPrompt).not.toHaveBeenCalled();
+      expect(mockUiManager.promptList).not.toHaveBeenCalled();
     });
   });
 });

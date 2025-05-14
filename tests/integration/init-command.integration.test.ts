@@ -29,6 +29,34 @@ let originalCwd: () => string;
 let mockUiManagerInstance: any; // To hold the mocked UIManager instance
 let selectModesInteractivelySpy: MockInstance<[], Promise<string[]>>;
 
+mockUiManagerInstance = {
+  printBanner: vi.fn(),
+  printError: vi.fn(),
+  printWarning: vi.fn(),
+  printSuccess: vi.fn(),
+  startSpinner: vi.fn(),
+  succeedSpinner: vi.fn(),
+  failSpinner: vi.fn(),
+  warnSpinner: vi.fn(),
+  infoSpinner: vi.fn(),
+  stopSpinner: vi.fn(),
+  promptInput: vi.fn(),
+  promptList: vi.fn(),
+  promptConfirm: vi.fn(),
+  promptCheckbox: vi.fn(),
+  promptEditor: vi.fn(),
+  updateSpinnerText: vi.fn(),
+  printInfo: vi.fn(),
+  printAbortMessage: vi.fn(),
+  chalk: {
+    cyan: vi.fn((str: string) => str),
+    yellow: vi.fn((str: string) => str),
+    green: vi.fn((str: string) => str),
+    red: vi.fn((str: string) => str),
+    bold: vi.fn((str: string) => str),
+  },
+};
+
 const createMockDefinitions = async(rootDir: string) => {
   const definitionsDir = path.join(rootDir, 'definitions');
   const rulesDir = path.join(definitionsDir, 'rules');
@@ -103,24 +131,6 @@ beforeEach(async() => {
 
   // Setup UIManager mock instance for each test
   const UIManagerModule = await import('../../src/utils/uiManager.js');
-  mockUiManagerInstance = {
-    startSpinner: vi.fn(),
-    stopSpinner: vi.fn(),
-    succeedSpinner: vi.fn(),
-    failSpinner: vi.fn(),
-    printSuccess: vi.fn(),
-    printError: vi.fn(),
-    printWarning: vi.fn(),
-    printInfo: vi.fn(),
-    printAbortMessage: vi.fn(),
-    chalk: {
-      cyan: (str: string) => str,
-      yellow: (str: string) => str,
-      green: (str: string) => str,
-      red: (str: string) => str,
-      bold: (str: string) => str,
-    },
-  };
   vi.mocked(UIManagerModule.UIManager).mockImplementation(() => mockUiManagerInstance);
 
   process.argv = ['node', 'cli.js']; // Reset to basic argv

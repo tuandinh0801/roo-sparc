@@ -89,7 +89,7 @@ export async function main(mainOptions: MainOptions = {}): Promise<void> {
 
     // 2. Select Modes
     // Instantiate ModeSelector before checking for non-interactive flags
-    const modeSelector = new ModeSelector(rawCategories, modes);
+    const modeSelector = new ModeSelector(rawCategories, modes, uiManager);
 
     // Check if modes or category flags are provided
     if (options.modes || options.category) {
