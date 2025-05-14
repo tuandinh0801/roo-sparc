@@ -2,6 +2,7 @@
 import chalk from 'chalk';
 import boxen, { Options as BoxenOptions } from 'boxen';
 import ora, { Ora } from 'ora';
+import Table from 'cli-table3';
 import { pastel } from 'gradient-string';
 import inquirer, {
   QuestionCollection,
@@ -299,4 +300,78 @@ export class UIManager {
     const answers: Answers = await this.inquirer.prompt([question]);
     return answers.editorInput as string;
   }
+
+  // --- Table Display Method ---
+
+  /**
+   * Displays data in a formatted table.
+   * @param {string[]} headers - An array of strings for table headers.
+   * @param {(string | number | boolean | null | undefined)[][]} rows - An array of rows, where each row is an array of cell values.
+   * @param {Table.TableConstructorOptions} [tableOptions] - Optional cli-table3 constructor options.
+   */
+  public displayTable(
+    headers: string[],
+    rows: (string | number | boolean | null | undefined)[][],
+    tableOptions?: Table.TableConstructorOptions
+  ): void {
+    const table = new Table({
+      head: headers.map(header => this.chalk.cyan(header)),
+      colWidths: headers.map(() => 20), // Default column width, can be customized
+      style: { 'head': [], 'border': [] }, // Basic styling, can be customized
+      ...tableOptions,
+    });
+
+    rows.forEach(row => {
+      table.push(row.map(cell => (cell === null || cell === undefined ? '' : String(cell))));
+    });
+
+    console.log(table.toString());
+  }
+
+  /**
+   * Displays a message to the user, using appropriate styling based on type.
+   * @param type - The type of message ('info', 'success', 'warning', 'error').
+   * @param message - The message content.
+   * @param title - Optional title for the message.
+   */
+  public showMessage(type: 'info' | 'success' | 'warning' | 'error', message: string, title?: string): void {
+    switch (type) {
+      case 'info':
+        this.printInfo(message, title);
+        break;
+      case 'success':
+        this.printSuccess(message, title);
+        break;
+      case 'warning':
+        this.printWarning(message, title);
+        break;
+      case 'error':
+        this.printError(message, title);
+        break;
+      default:
+        // Fallback to console.log for unknown types, though TypeScript should prevent this.
+        console.log(message);
+        break;
+    }
+  }
+}
+
+// Export a singleton instance for convenience
+export const uiManager = new UIManager();
+
+// Export standalone functions for easier use in commands, using the singleton instance
+export function displayTable(
+  headers: string[],
+  rows: (string | number | boolean | null | undefined)[][],
+  tableOptions?: Table.TableConstructorOptions
+): void {
+  uiManager.displayTable(headers, rows, tableOptions);
+}
+
+export function showMessage(
+  type: 'info' | 'success' | 'warning' | 'error',
+  message: string,
+  title?: string
+): void {
+  uiManager.showMessage(type, message, title);
 }

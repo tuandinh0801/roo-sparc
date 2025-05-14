@@ -16,7 +16,16 @@ export interface Rule {
 export interface CategoryDefinition {
   slug: string; // Unique identifier for the category (e.g., "development-workflows")
   name: string; // Human-readable name (e.g., "Development Workflows")
-  description: string; // Brief description of the category
+  description?: string; // Brief description of the category
+  source?: 'system' | 'user'; // Indicates if the definition is from the system or user configuration
+}
+
+/**
+ * Represents the structure of the user-definitions.json file.
+ */
+export interface UserDefinitions {
+  customModes?: ModeDefinition[];
+  customCategories?: CategoryDefinition[];
 }
 
 /**
@@ -30,5 +39,9 @@ export interface ModeDefinition {
   groups?: (string | (string | object)[])[]; // Corresponds to 'groups' in .roomodes output
   categorySlugs: string[]; // Array of category slugs this mode belongs to
   associatedRuleFiles: Rule[]; // Array of Rule file metadata objects associated with this mode (both generic and specific). This is used internally by roo-init to know which files to copy.
-  source?: string; // Corresponds to 'source' in .roomodes output, defaults to 'project' or 'system'
+  source?: 'system' | 'user'; // Indicates if the definition is from the system or user configuration
 }
+/**
+ * Represents the source of a definition for list commands.
+ */
+export type SourceType = 'custom' | 'system' | 'all';

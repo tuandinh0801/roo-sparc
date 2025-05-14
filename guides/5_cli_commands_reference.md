@@ -56,6 +56,93 @@ If run without options, it enters interactive mode.
     -   Description: Displays help information specifically for the `init` command, detailing its purpose and available options.
     -   Usage: `roo-init init --help`
 
+## `manage` Command
+
+The `manage` command provides subcommands for managing user-specific configurations, such as custom modes.
+
+### `manage add mode` Command
+
+This command allows you to interactively define and save a new custom mode to your global user configuration. This enables personalization and extension of the `roo-init` CLI with your own modes and rules.
+
+**Usage:**
+
+```bash
+roo-init manage add mode
+```
+
+Running this command will initiate a series of interactive prompts to gather the necessary information for the new custom mode:
+
+**Mode Definition Prompts:**
+
+*   **`slug`**:
+    *   A unique identifier for the mode (e.g., `my-custom-node-mode`).
+    *   This slug must be unique among your other custom modes. The CLI will validate this.
+*   **`name`**:
+    *   A human-readable name for the mode (e.g., "My Custom Node.js Mode").
+*   **`description` (`roleDefinition`)**:
+    *   A detailed description explaining the purpose and functionality of the mode.
+*   **`customInstructions`** (optional):
+    *   Specific instructions or guidelines that this mode should follow during its operation.
+*   **`groups`** (optional):
+    *   A comma-separated list of group names to associate with this mode (e.g., `backend,typescript`).
+*   **`categorySlugs`**:
+    *   You will be prompted to select one or more category slugs from a list of existing system and custom categories.
+
+**Associated Rule File Prompts:**
+
+After defining the mode's metadata, you will be asked if you want to add rule files to this mode. You can add multiple rules. For each rule, you will be prompted for:
+
+*   **Rule `name`**:
+    *   A human-readable name for the rule (e.g., "Custom ESLint Configuration").
+*   **Rule `filename`**:
+    *   The filename for the rule (e.g., `custom-eslint.md`). This will be validated to ensure it contains valid filename characters.
+*   **Rule `description`** (optional):
+    *   A brief description of the rule's purpose.
+*   **`isGeneric`**:
+    *   A boolean (yes/no) indicating if this is a generic rule.
+    *   Generic rules are typically stored in a general location (e.g., `.roo/rules/`) and can be shared across modes.
+    *   Mode-specific rules (default, `isGeneric: false`) are tied directly to this custom mode.
+*   **Rule Content**:
+    *   An editor (your system's default or a basic in-terminal editor) will open, allowing you to input the Markdown content for the rule.
+
+**Storage:**
+
+*   The complete new mode definition (including metadata for all its associated rules) will be appended to the `customModes` array in your user-global configuration file: `~/.config/roo-init/user-definitions.json`.
+*   The content of each rule file you define will be saved to: `~/.config/roo-init/rules/[mode_slug]/[filename]`, where `[mode_slug]` is the slug you defined for the custom mode, and `[filename]` is the filename you provided for the rule. The `[mode_slug]` subdirectory will be created if it doesn't exist.
+
+Upon successful completion, The CLI will provide feedback confirming the creation of the mode and its rules.
+
+### `manage add category` Command
+
+This command allows you to interactively define and save a new custom category to your global user configuration. Custom categories help organize modes and can be selected when adding or editing custom modes.
+
+**Usage:**
+
+```bash
+roo-init manage add category
+```
+
+Running this command will initiate a series of interactive prompts to gather the necessary information for the new custom category:
+
+**Category Definition Prompts:**
+
+*   **`slug`**:
+    *   A unique identifier for the category (e.g., `my-custom-category`).
+    *   This slug must be unique among your other custom categories. The CLI will validate this.
+*   **`name`**:
+    *   A human-readable name for the category (e.g., "My Custom Category").
+*   **`description`** (optional):
+    *   A brief description explaining the purpose of the category.
+
+**Storage:**
+
+*   The new category definition will be appended to the `customCategories` array in your user-global configuration file: `~/.config/roo-init/user-definitions.json`.
+*   If the file or the `customCategories` array doesn't exist, they will be created.
+
+Upon successful completion, the CLI will provide feedback confirming the creation of the category.
+
+---
+---
 ## Exit Codes
 
 The Roo Init CLI uses standard exit codes to indicate the outcome of its execution:

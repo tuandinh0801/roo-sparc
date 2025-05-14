@@ -49,7 +49,7 @@ describe('CLI Integration Tests', () => {
   };
 
   const mockModes: ModeDefinition[] = [
-    { name: 'Test Mode 1', slug: 'test-mode-1', description: 'Desc 1', categorySlugs: ['cat1'], associatedRuleFiles: [mockRule], customInstructions: 'CI Test Mode 1', groups: ['groupA'], source: 'project' },
+    { name: 'Test Mode 1', slug: 'test-mode-1', description: 'Desc 1', categorySlugs: ['cat1'], associatedRuleFiles: [mockRule], customInstructions: 'CI Test Mode 1', groups: ['groupA'], source: 'user' },
     { name: 'Test Mode 2', slug: 'test-mode-2', description: 'Desc 2', categorySlugs: ['cat2'], associatedRuleFiles: [], customInstructions: 'CI Test Mode 2', groups: ['groupB', 'groupC'], source: 'system' },
   ];
 

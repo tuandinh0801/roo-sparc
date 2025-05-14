@@ -7,6 +7,10 @@ import { ModeSelector } from './core/ModeSelector.js';
 import { FileManager } from './core/FileManager.js';
 import { ModeDefinition, CategoryDefinition } from './types/domain.js'; // Import CategoryDefinition
 import { UIManager } from './utils/uiManager.js';
+import { configureManageAddModeCommand } from './commands/manageAddMode.js';
+import { setupManageAddCategoryCommand } from './commands/manageAddCategory.js';
+import { manageListModes } from './commands/manageListModes.js';
+import { manageListCategories } from './commands/manageListCategories.js';
 import {
   handleError,
   UserAbortError,
@@ -54,6 +58,37 @@ export async function main(mainOptions: MainOptions = {}): Promise<void> {
     .option('--modes <slugs>', 'Comma-separated list of mode slugs to initialize')
     .option('--category <slugs>', 'Comma-separated list of category slugs to initialize');
 
+  // Setup manage command
+  const manageCommand = app
+    .command('manage')
+    .description('Manage roo-init configurations and definitions.');
+
+  // Configure subcommands for manage
+  configureManageAddModeCommand(manageCommand);
+  setupManageAddCategoryCommand(manageCommand);
+
+  const listCommand = manageCommand
+    .command('list')
+    .description('List custom modes or categories.');
+
+  listCommand
+    .command('modes')
+    .description('List custom modes, system modes, or all modes.')
+    .option('--source <source>', 'Specify the source of modes to list (custom, system, all). Valid values: custom, system, all.', 'custom')
+    .action(async(options, cmd) => {
+      await manageListModes(options, cmd);
+    });
+
+  listCommand
+    .command('categories')
+    .description('List custom categories, system categories, or all categories.')
+    .option('--source <source>', 'Specify the source of categories to list (custom, system, all). Valid values: custom, system, all.', 'custom')
+    .action(async(options, cmd) => {
+      await manageListCategories(options, cmd);
+    });
+
+  // Future manage subcommands can be added here
+
   app.parse(process.argv);
   const options = app.opts();
 
@@ -81,7 +116,7 @@ export async function main(mainOptions: MainOptions = {}): Promise<void> {
       process.stdout.write(`[CLI Test Log] effectiveDefinitionsPath: ${effectiveDefinitionsPath}\n`);
       process.stdout.write(`[CLI Test Log] process.cwd(): ${process.cwd()}\n`);
     }
-    const definitionLoader = new DefinitionLoader(effectiveDefinitionsPath);
+    const definitionLoader = new DefinitionLoader(fileManager, effectiveDefinitionsPath);
     const loadedDefs = await definitionLoader.loadDefinitions();
     modes = loadedDefs.modes;
     rawCategories = loadedDefs.categories; // Store raw categories
