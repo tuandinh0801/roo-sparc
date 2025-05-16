@@ -141,6 +141,66 @@ Running this command will initiate a series of interactive prompts to gather the
 
 Upon successful completion, the CLI will provide feedback confirming the creation of the category.
 
+### `manage list modes` Command
+
+Lists available modes, allowing filtering by source (system, custom, or all).
+
+**Usage:**
+```bash
+roo-init manage list modes [options]
+```
+
+**Options:**
+
+*   **`--source <source>`**
+    *   Description: Specify the source of modes to list.
+    *   Values: `custom`, `system`, `all`.
+    *   Default: `custom`.
+    *   Example: `roo-init manage list modes --source=all`
+
+**Output:**
+
+Displays a table with the following columns for each mode:
+*   `Slug`: The unique identifier of the mode.
+*   `Name`: The human-readable name of the mode.
+*   `Description`: A brief description of the mode.
+*   `Source`: Indicates the origin of the mode:
+    *   `system`: A default mode provided with `roo-init`.
+    *   `custom`: A user-defined mode.
+    *   `custom (overrides system)`: A user-defined mode that replaces a system mode with the same slug.
+
+If no modes are found for the specified source, a message like "No custom modes found." will be displayed.
+
+### `manage list categories` Command
+
+Lists available categories, allowing filtering by source (system, custom, or all).
+
+**Usage:**
+```bash
+roo-init manage list categories [options]
+```
+
+**Options:**
+
+*   **`--source <source>`**
+    *   Description: Specify the source of categories to list.
+    *   Values: `custom`, `system`, `all`.
+    *   Default: `custom`.
+    *   Example: `roo-init manage list categories --source=system`
+
+**Output:**
+
+Displays a table with the following columns for each category:
+*   `Slug`: The unique identifier of the category.
+*   `Name`: The human-readable name of the category.
+*   `Description`: A brief description of the category.
+*   `Source`: Indicates the origin of the category:
+    *   `system`: A default category provided with `roo-init`.
+    *   `custom`: A user-defined category.
+    *   `custom (overrides system)`: A user-defined category that replaces a system category with the same slug.
+
+If no categories are found for the specified source, a message like "No system categories found." will be displayed.
+
 ---
 ---
 ## Exit Codes

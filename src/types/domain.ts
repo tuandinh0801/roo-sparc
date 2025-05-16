@@ -4,7 +4,7 @@
 export interface Rule {
   id: string; // Unique identifier for the rule (e.g., "01_document_retrieval")
   name: string; // Human-readable name (e.g., "Document Retrieval Rule")
-  description: string; // Brief description of the rule's purpose
+  description?: string; // Brief description of the rule's purpose (optional)
   sourcePath: string; // Relative path to the rule file within the CLI's bundled 'definitions/rules/' directory (e.g., "generic/01_document_retrieval.md" or "mode-slug/specific_rule.md")
   isGeneric: boolean; // True if the rule belongs in the target project's generic '.roo/rules/' folder, false if mode-specific (e.g., '.roo/rules-[mode_slug]/')
   targetPath?: string; // Calculated target path within the project, added dynamically by FileManager
@@ -41,7 +41,28 @@ export interface ModeDefinition {
   associatedRuleFiles: Rule[]; // Array of Rule file metadata objects associated with this mode (both generic and specific). This is used internally by roo-init to know which files to copy.
   source?: 'system' | 'user'; // Indicates if the definition is from the system or user configuration
 }
+
 /**
- * Represents the source of a definition for list commands.
+ * Represents the source of a definition as specified by the user in list commands.
  */
 export type SourceType = 'custom' | 'system' | 'all';
+
+/**
+ * Represents the specific source of a definition, including override status.
+ * This is used internally and for display purposes.
+ */
+export type DefinitionSource = 'system' | 'custom' | 'custom (overrides system)';
+
+/**
+ * Extends ModeDefinition with a resolved sourceType property for display.
+ */
+export interface ModeDefinitionWithSource extends ModeDefinition {
+  sourceType: DefinitionSource;
+}
+
+/**
+ * Extends CategoryDefinition with a resolved sourceType property for display.
+ */
+export interface CategoryDefinitionWithSource extends CategoryDefinition {
+  sourceType: DefinitionSource;
+}

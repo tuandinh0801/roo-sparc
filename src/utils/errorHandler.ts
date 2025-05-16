@@ -1,4 +1,4 @@
-import { UIManager } from './uiManager.js';
+import { UIManager, uiManager as uiManagerSingleton } from './uiManager.js';
 import stripAnsi from 'strip-ansi';
 
 /**
@@ -81,7 +81,7 @@ interface ErrorHandlerOptions {
  */
 export function handleError(error: unknown, options: ErrorHandlerOptions = {}): void {
   const { exit = false, exitCode = 1, uiManager: providedUIManager } = options;
-  const ui = providedUIManager || new UIManager(); // Use provided or create new
+  const ui = providedUIManager || uiManagerSingleton; // Use provided or default to the imported singleton
 
   // Ensure any active spinner is stopped
   ui.stopSpinner();
@@ -182,7 +182,7 @@ export function handleError(error: unknown, options: ErrorHandlerOptions = {}): 
     if (process.env.NODE_ENV === 'test' || process.env.VITEST || process.env.VITEST_WORKER_ID) {
       console.error(plainErrorMessageForStdErr); // For capture if console.error is piped
       process.stderr.write(plainErrorMessageForStdErr + '\n'); // For direct capture
-      
+
       // For E2E tests, also write to stdout with a marker for easier test assertions
       if (process.env.VITEST || process.env.VITEST_WORKER_ID) {
         console.log(`E2E_ERROR_OUTPUT: ${plainErrorMessageForStdErr}`);
@@ -195,6 +195,8 @@ export function handleError(error: unknown, options: ErrorHandlerOptions = {}): 
     }
 
     // Use specific exit code if provided, otherwise default (usually 1)
-    process.exit(exitCode);
+    // For UserAbortError, the exit code should be 0, indicating a non-error termination.
+    const finalExitCode = error instanceof UserAbortError ? 0 : exitCode;
+    process.exit(finalExitCode);
   }
 }

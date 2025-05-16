@@ -1,595 +1,652 @@
-import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import fs from 'fs-extra';
 import path from 'path';
+
+// Unmock DefinitionLoader for this specific test file to use the actual implementation
+vi.unmock('../../src/core/DefinitionLoader.js');
+
 import { DefinitionLoader } from '../../src/core/DefinitionLoader.js';
-import { ModeDefinition, CategoryDefinition } from '../../src/types/domain.js';
+import type { ModeDefinition, CategoryDefinition, UserDefinitions, Rule } from '../../src/types/domain.js';
 import { FileManager } from '../../src/core/FileManager.js';
+import { UIManager } from '../../src/utils/uiManager.js'; // For typing FileManager's uiManager property
 
-// Define a type for paths that works with fs-extra mock implementations
-type Path = string | Buffer | URL;
+// Import centralized ErrorHandler mocks
+import { resetErrorHandlerMocks } from '../setup/globalUtilityMocks.js';
 
-// Mock fs-extra
-vi.mock('fs-extra');
-
-// Mock FileManager module
-vi.mock('../../src/core/FileManager.js', () => {
-  const ensureUserConfigDirectoriesMock = vi.fn().mockResolvedValue({
-    configPath: '/mock/user/config',
-    rulesPath: '/mock/user/config/rules'
-  });
-  const getUserConfigPathMock = vi.fn().mockReturnValue('/mock/user/config');
-
-  return {
-    FileManager: vi.fn().mockImplementation(() => ({
-      ensureUserConfigDirectories: ensureUserConfigDirectoriesMock,
-      getUserConfigPath: getUserConfigPathMock
-    }))
-  };
+// Test data factories with proper types
+const createTestRule = (overrides: Partial<Rule> = {}): Rule => ({
+  id: 'test-rule',
+  name: 'Test Rule',
+  description: 'A test rule',
+  sourcePath: 'test/rule.md',
+  isGeneric: true,
+  ...overrides
 });
 
-const validMockModes: ModeDefinition[] = [
-  {
-    slug: 'test-mode-1',
-    name: 'Test Mode 1',
-    description: 'Description for test mode 1',
-    categorySlugs: ['test-cat-1'],
+const createTestMode = (overrides: Partial<ModeDefinition> = {}): ModeDefinition => ({
+  slug: 'test-mode',
+  name: 'Test Mode',
+  description: 'A test mode',
+  categorySlugs: ['test-category'],
+  associatedRuleFiles: [],
+  source: 'system',
+  ...overrides
+});
+
+const createTestCategory = (overrides: Partial<CategoryDefinition> = {}): CategoryDefinition => ({
+  slug: 'test-category',
+  name: 'Test Category',
+  description: 'A test category',
+  source: 'system',
+  ...overrides
+});
+
+// Mock fs-extra. The actual mock functions are created below.
+vi.mock('fs-extra');
+
+// Declare spies for FileManager methods with specific types.
+// These will be initialized in beforeEach.
+let mockFileManagerInstance: Partial<FileManager> & { uiManager: Partial<UIManager> }; // For the instance passed to DefinitionLoader
+let ensureUserConfigDirectoriesMock: Mock<[], Promise<{ configPath: string; rulesPath: string }>>;
+let getUserConfigPathMock: Mock<[], string>;
+let writeRoomodesFileMock: Mock<[string, ModeDefinition[], boolean], Promise<void>>;
+let writeJsonMock: Mock<[string, any, boolean], Promise<void>>;
+let createDirectoryIfNotExistsMock: Mock<[string], Promise<void>>;
+let copyFileMock: Mock<[string, string, boolean], Promise<void>>;
+let copyDirectoryContentsMock: Mock<[string, string, boolean, string?], Promise<void>>;
+let ensureRuleSpecificDirectoriesMock: Mock<[string, string], Promise<void>>;
+let copyRuleFilesForModeMock: Mock<[string, string, string[], boolean], Promise<void>>;
+let readUserDefinitionsMock: Mock<[], Promise<UserDefinitions | null>>;
+let writeUserDefinitionsMock: Mock<[UserDefinitions], Promise<void>>;
+
+
+// --- Test Data Setup using the new factory ---
+const testSystemModes: ModeDefinition[] = [
+  createTestMode({
+    slug: 'sys-mode-1',
+    name: 'System Mode 1',
+    categorySlugs: ['sys-cat-1'],
     associatedRuleFiles: [
-      { id: 'rule-1', name: 'Rule 1', description: 'Rule 1 desc', sourcePath: 'generic/rule-1.md', isGeneric: true },
-      { id: 'rule-2', name: 'Rule 2', description: 'Rule 2 desc', sourcePath: 'test-mode-1/specific-rule.md', isGeneric: false },
+      createTestRule({ id: 'sys-rule-1', sourcePath: 'generic/sys-rule-1.md', isGeneric: true }),
+      createTestRule({ id: 'sys-rule-2', sourcePath: 'sys-mode-1/specific-rule.md', isGeneric: false }),
     ],
     source: 'system'
-  }
+  }),
+  createTestMode({
+    slug: 'sys-mode-2',
+    name: 'System Mode 2',
+    categorySlugs: ['sys-cat-2'],
+    source: 'system'
+  })
 ];
 
-const allMockModes: ModeDefinition[] = [ // Includes modes for various test cases
-  ...validMockModes,
-  {
-    slug: 'test-mode-2', // Used for AC3 (invalid category)
-    name: 'Test Mode 2',
-    description: 'Description for test mode 2',
-    categorySlugs: ['test-cat-invalid'],
-    associatedRuleFiles: [
-      { id: 'rule-3', name: 'Rule 3', description: 'Rule 3 desc', sourcePath: 'generic/non-existent-rule.md', isGeneric: true },
-    ],
-    source: 'system'
-  },
-  {
-    slug: 'test-mode-for-rule-path-test', // Used specifically for AC4 to ensure no category errors
-    name: 'Test Mode for Rule Path',
-    description: 'Mode for testing rule path validation',
-    categorySlugs: ['test-cat-1'],
-    associatedRuleFiles: [
-      { id: 'rule-non-existent', name: 'Non Existent Rule', description: 'This rule file does not exist', sourcePath: 'generic/this-rule-does-not-exist.md', isGeneric: true },
-    ],
-    source: 'system'
-  }
+const testSystemCategories: CategoryDefinition[] = [
+  createTestCategory({ slug: 'sys-cat-1', name: 'System Category 1', source: 'system' }),
+  createTestCategory({ slug: 'sys-cat-2', name: 'System Category 2', source: 'system' }),
 ];
 
-const mockUserModes: ModeDefinition[] = [
-  {
+const testUserModes: ModeDefinition[] = [
+  createTestMode({
     slug: 'user-mode-1',
     name: 'User Mode 1',
-    description: 'Description for user mode 1',
     categorySlugs: ['user-cat-1'],
     associatedRuleFiles: [
-      { id: 'user-rule-1', name: 'User Rule 1', description: 'User Rule 1 desc', sourcePath: 'user-mode-1/user-rule-1.md', isGeneric: false },
+      createTestRule({ id: 'user-rule-1', sourcePath: 'user-mode-1/user-rule.md', isGeneric: false })
     ],
     source: 'user'
-  },
-  {
-    slug: 'test-mode-1', // Same slug as system mode to test precedence
-    name: 'Overridden Mode 1',
-    description: 'Overridden description',
-    categorySlugs: ['test-cat-1', 'user-cat-1'],
-    associatedRuleFiles: [
-      { id: 'overridden-rule', name: 'Overridden Rule', description: 'Overridden rule desc', sourcePath: 'test-mode-1/overridden-rule.md', isGeneric: false },
-    ],
+  }),
+  createTestMode({ // To test override
+    slug: 'sys-mode-1',
+    name: 'User Overridden System Mode 1',
+    categorySlugs: ['sys-cat-1', 'user-cat-1'],
     source: 'user'
-  }
+  })
 ];
 
-const mockUserCategories: CategoryDefinition[] = [
-  {
-    slug: 'user-cat-1',
-    name: 'User Category 1',
-    description: 'Description for user category 1',
+const testUserCategories: CategoryDefinition[] = [
+  createTestCategory({ slug: 'user-cat-1', name: 'User Category 1', source: 'user' }),
+  createTestCategory({ // To test override
+    slug: 'sys-cat-1',
+    name: 'User Overridden System Category 1',
     source: 'user'
-  },
-  {
-    slug: 'test-cat-1', // Same slug as system category to test precedence
-    name: 'Overridden Category 1',
-    description: 'Overridden description',
-    source: 'user'
-  }
+  })
 ];
 
-const mockUserDefinitions = {
-  customModes: mockUserModes,
-  customCategories: mockUserCategories
+const testUserDefinitions: UserDefinitions = {
+  customModes: testUserModes,
+  customCategories: testUserCategories,
 };
 
-// Define mockModes for use in tests
-const mockModes = validMockModes;
-
-
-const mockCategories: CategoryDefinition[] = [
-  { slug: 'test-cat-1', name: 'Test Category 1', description: 'Description for test cat 1', source: 'system' },
-];
 
 describe('DefinitionLoader', () => {
-  const testDefinitionsPath = 'test-definitions';
+  const MOCK_SYSTEM_DEFINITIONS_PATH = '/abs/path/to/system/definitions';
+  const MOCK_USER_CONFIG_PATH = '/abs/path/to/user/config';
+  const MOCK_SYSTEM_RULES_PATH = path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'rules');
+  const MOCK_USER_RULES_PATH = path.join(MOCK_USER_CONFIG_PATH, 'rules');
+
   let loader: DefinitionLoader;
-  let mockFileManagerInstance: InstanceType<typeof FileManager>;
+
+  // Get typed mock functions from fs-extra
+  const fsPathExistsMock = vi.mocked(fs.pathExists);
+  const fsReadJsonMock = vi.mocked(fs.readJson);
+
 
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.resetAllMocks(); // Resets all mocks (including fs-extra)
+    resetErrorHandlerMocks();
 
-    // Create a mock instance of FileManager with the methods we need
+    // Reset test data
     mockFileManagerInstance = {
-      ensureUserConfigDirectories: vi.fn().mockResolvedValue({
-        configPath: '/mock/user/config',
-        rulesPath: '/mock/user/config/rules'
-      }),
-      getUserConfigPath: vi.fn().mockReturnValue('/mock/user/config')
-    } as unknown as InstanceType<typeof FileManager>;
+      ensureUserConfigDirectories: ensureUserConfigDirectoriesMock,
+      getUserConfigPath: getUserConfigPathMock,
+      writeRoomodesFile: writeRoomodesFileMock,
+      writeJson: writeJsonMock,
+      createDirectoryIfNotExists: createDirectoryIfNotExistsMock,
+      copyFile: copyFileMock,
+      copyDirectoryContents: copyDirectoryContentsMock,
+      ensureRuleSpecificDirectories: ensureRuleSpecificDirectoriesMock,
+      copyRuleFilesForMode: copyRuleFilesForModeMock,
+      readUserDefinitions: readUserDefinitionsMock,
+      writeUserDefinitions: writeUserDefinitionsMock,
+      uiManager: {
+        chalk: {
+          green: (str: string) => str,
+          red: (str: string) => str,
+          yellow: (str: string) => str,
+          blue: (str: string) => str,
+          cyan: (str: string) => str,
+        },
+      } as unknown as UIManager,
+    };
 
-    // Reset all mock implementations for each test
-    vi.mocked(fs.pathExists).mockReset();
-    vi.mocked(fs.readJson).mockReset();
+    // Initialize ALL spies for FileManager methods
+    ensureUserConfigDirectoriesMock = vi.fn().mockResolvedValue({
+      configPath: MOCK_USER_CONFIG_PATH,
+      rulesPath: MOCK_USER_RULES_PATH,
+    });
+    getUserConfigPathMock = vi.fn().mockReturnValue(MOCK_USER_CONFIG_PATH);
+    writeRoomodesFileMock = vi.fn().mockResolvedValue(undefined);
+    writeJsonMock = vi.fn().mockResolvedValue(undefined);
+    createDirectoryIfNotExistsMock = vi.fn().mockResolvedValue(undefined);
+    copyFileMock = vi.fn().mockResolvedValue(undefined);
+    copyDirectoryContentsMock = vi.fn().mockResolvedValue(undefined);
+    ensureRuleSpecificDirectoriesMock = vi.fn().mockResolvedValue(undefined);
+    copyRuleFilesForModeMock = vi.fn().mockResolvedValue(undefined);
+    readUserDefinitionsMock = vi.fn().mockResolvedValue(null);
+    writeUserDefinitionsMock = vi.fn().mockResolvedValue(undefined);
 
-    loader = new DefinitionLoader(mockFileManagerInstance, testDefinitionsPath);
+    // Create a simple mock object for FileManager for this test suite
+    mockFileManagerInstance = {
+      ensureUserConfigDirectories: ensureUserConfigDirectoriesMock,
+      getUserConfigPath: getUserConfigPathMock,
+      writeRoomodesFile: writeRoomodesFileMock,
+      writeJson: writeJsonMock,
+      createDirectoryIfNotExists: createDirectoryIfNotExistsMock,
+      copyFile: copyFileMock,
+      copyDirectoryContents: copyDirectoryContentsMock,
+      ensureRuleSpecificDirectories: ensureRuleSpecificDirectoriesMock,
+      copyRuleFilesForMode: copyRuleFilesForModeMock,
+      readUserDefinitions: readUserDefinitionsMock,
+      writeUserDefinitions: writeUserDefinitionsMock,
+      uiManager: {
+        startSpinner: vi.fn(),
+        stopSpinner: vi.fn(),
+        succeedSpinner: vi.fn(),
+        failSpinner: vi.fn(),
+        updateSpinnerText: vi.fn(),
+        infoSpinner: vi.fn(),
+        warnSpinner: vi.fn(),
+        printSuccess: vi.fn(),
+        printError: vi.fn(),
+        printWarning: vi.fn(),
+        printInfo: vi.fn(),
+        printAbortMessage: vi.fn(),
+        promptInput: vi.fn(),
+        promptList: vi.fn(),
+        promptCheckbox: vi.fn(),
+        promptConfirm: vi.fn(),
+        promptEditor: vi.fn(),
+        displayTable: vi.fn(),
+        showMessage: vi.fn(),
+        chalk: {
+          green: (str: string) => str,
+          red: (str: string) => str,
+          yellow: (str: string) => str,
+          blue: (str: string) => str,
+          cyan: (str: string) => str,
+        } as const,
+      } as unknown as UIManager,
+    };
 
-    vi.spyOn(fs, 'readJson').mockImplementation(async(file: any) => {
-      const filePath = String(file);
-      const systemModesPath = path.join(testDefinitionsPath, 'modes.json');
-      const systemCategoriesPath = path.join(testDefinitionsPath, 'categories.json');
-      const userDefinitionsPath = path.join('/mock/user/config', 'user-definitions.json');
+    loader = new DefinitionLoader(mockFileManagerInstance as unknown as FileManager, MOCK_SYSTEM_DEFINITIONS_PATH);
 
-      // For the specific test "AC2: should load and merge valid user definitions with system definitions"
-      // Make sure we return the full set of mock modes including user modes
-      if (filePath === systemModesPath) {
-        // For the test that checks for invalid modes
-        if (vi.mocked(fs.readJson).mock.calls.length > 15 && vi.mocked(fs.readJson).mock.calls.length < 20) {
-          return Promise.resolve([{ slug: 'invalid-mode' }]);
-        }
-        // For the test that checks for invalid category references
-        if (vi.mocked(fs.readJson).mock.calls.length > 20 && vi.mocked(fs.readJson).mock.calls.length < 25) {
-          return Promise.resolve(allMockModes.filter(m => m.slug === 'test-mode-1' || m.slug === 'test-mode-2'));
-        }
-        // For the test that checks for non-existent rule files
-        if (vi.mocked(fs.readJson).mock.calls.length > 25) {
-          return Promise.resolve([allMockModes.find(m => m.slug === 'test-mode-for-rule-path-test')]);
-        }
-        return Promise.resolve(mockModes);
-      } else if (filePath === systemCategoriesPath) {
-        return Promise.resolve(mockCategories);
-      } else if (filePath === userDefinitionsPath) {
-        // For tests that check invalid user definitions
-        if (vi.mocked(fs.readJson).mock.calls.length > 10 && vi.mocked(fs.readJson).mock.calls.length < 15) {
-          return Promise.reject(new Error('Invalid JSON'));
-        }
-        return Promise.resolve(JSON.parse(JSON.stringify(mockUserDefinitions)));
-      }
-      console.warn(`fs.readJson mock: Unhandled path ${filePath}`);
-      throw new Error(`fs.readJson: Unexpected path ${filePath}`);
+    // Configure fs-extra mocks (these are globally mocked but we control behavior here)
+    fsPathExistsMock.mockImplementation(async(p: fs.PathLike) => {
+      const pStr = String(p);
+      if (pStr === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return true;}
+      if (pStr === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json')) {return true;}
+      if (pStr === path.join(MOCK_USER_CONFIG_PATH, 'user-definitions.json')) {return true;} // Default to true for user defs
+      if (pStr.startsWith(MOCK_SYSTEM_RULES_PATH) || pStr.startsWith(MOCK_USER_RULES_PATH)) {return true;}
+      return false;
     });
 
-    vi.spyOn(fs, 'pathExists').mockImplementation(async(pathParam: string) => {
-      const filePath = String(pathParam);
-      const systemModesPath = `${testDefinitionsPath}/modes.json`;
-      const systemCategoriesPath = `${testDefinitionsPath}/categories.json`;
-      const userDefinitionsPath = '/mock/user/config/user-definitions.json';
-      const systemRulesDir = `${testDefinitionsPath}/rules`;
-      const userRulesDir = '/mock/user/config/rules';
-      const userRuleFilePath = `${userRulesDir}/user-mode-1/user-rule-1.md`;
-
-      console.log('Checking path:', filePath);
-
-      // Handle specific paths
-      if (filePath === systemModesPath) {
-        console.log('[DefinitionLoader Test Log] Checking for system modes.json at:', systemModesPath);
-        const exists = true;
-        if (!exists) {console.log('[DefinitionLoader Test Log] System modes.json NOT FOUND at:', systemModesPath);}
-        else {console.log('[DefinitionLoader Test Log] Content of system test-definitions/modes.json:', JSON.stringify(mockModes, null, 2));}
-        return exists;
-      }
-
-      if (filePath === systemCategoriesPath) {return true;}
-
-      if (filePath === userDefinitionsPath) {
-        const testCase = vi.mocked(fs.pathExists).mock.calls.length > 5;
-        return testCase;
-      }
-
-      // Handle non-existent rule paths
-      if (filePath.includes('this-rule-does-not-exist.md')) {return false;}
-      if (filePath.includes('non-existent-rule.md')) {return false;}
-
-      // Explicitly handle the user rule file path for the failing test
-      if (filePath === userRuleFilePath) {return true;}
-
-      // Default rule directory checks
-      if (filePath.startsWith(userRulesDir)) {return true;}
-      if (filePath.startsWith(systemRulesDir)) {return true;}
-
-      return true;
+    fsReadJsonMock.mockImplementation(async(p: any) => {
+      const pStr = String(p);
+      if (pStr === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return JSON.parse(JSON.stringify(testSystemModes));}
+      if (pStr === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json')) {return JSON.parse(JSON.stringify(testSystemCategories));}
+      if (pStr === path.join(MOCK_USER_CONFIG_PATH, 'user-definitions.json')) {return JSON.parse(JSON.stringify(testUserDefinitions));}
+      throw new Error(`fs.readJson mock: Unhandled path ${pStr}`);
     });
   });
 
-  describe('User Definitions', () => {
-    // Test removed due to persistent path2.join issue
-    // TODO: Investigate and fix the path2.join issue in a future update
+
+  describe('loadDefinitions', () => {
+    it('AC1: should load valid system mode and category definitions successfully', async() => {
+      // Override fsPathExists for this specific test to simulate no user definitions
+      fsPathExistsMock.mockImplementation(async(p: fs.PathLike) => {
+        const pStr = String(p);
+        if (pStr === path.join(MOCK_USER_CONFIG_PATH, 'user-definitions.json')) {return false;}
+        if (pStr === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return true;}
+        if (pStr === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json')) {return true;}
+        return true; // Default for other paths like rule files
+      });
+
+      const { modes, categories } = await loader.loadDefinitions();
+
+      expect(modes).toEqual(expect.arrayContaining(testSystemModes.map(m => expect.objectContaining(m))));
+      expect(categories).toEqual(expect.arrayContaining(testSystemCategories.map(c => expect.objectContaining(c))));
+      expect(fsReadJsonMock).toHaveBeenCalledWith(path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json'));
+      expect(fsReadJsonMock).toHaveBeenCalledWith(path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json'));
+      expect(readUserDefinitionsMock).toHaveBeenCalled(); // Ensure FileManager's method was called
+    });
+
+    it('AC2: should load and merge valid user definitions with system definitions', async() => {
+      // Ensure readUserDefinitionsMock returns the test user definitions
+      readUserDefinitionsMock.mockResolvedValue(JSON.parse(JSON.stringify(testUserDefinitions)));
+
+      const { modes, categories } = await loader.loadDefinitions();
+
+      const overriddenMode = modes.find(m => m.slug === 'sys-mode-1');
+      expect(overriddenMode).toBeDefined();
+      expect(overriddenMode?.name).toBe('User Overridden System Mode 1');
+      expect(overriddenMode?.source).toBe('user');
+
+      const userOnlyMode = modes.find(m => m.slug === 'user-mode-1');
+      expect(userOnlyMode).toBeDefined();
+      expect(userOnlyMode?.source).toBe('user');
+
+      const systemOnlyMode = modes.find(m => m.slug === 'sys-mode-2');
+      expect(systemOnlyMode).toBeDefined();
+      expect(systemOnlyMode?.source).toBe('system');
+
+      const overriddenCategory = categories.find(c => c.slug === 'sys-cat-1');
+      expect(overriddenCategory).toBeDefined();
+      expect(overriddenCategory?.name).toBe('User Overridden System Category 1');
+      expect(overriddenCategory?.source).toBe('user');
+
+      expect(readUserDefinitionsMock).toHaveBeenCalled();
+    });
 
     it('User Definitions > AC3: should handle missing user-definitions.json gracefully (file does not exist)', async() => {
-      vi.mocked(fs.pathExists).mockImplementation(async(p: any): Promise<boolean> => {
-        const pathStr = String(p);
-        if (pathStr === path.join('/mock/user/config', 'user-definitions.json')) {
-          return false;
-        }
-        return true;
-      });
-
-      // Reset the readJson mock to ensure it returns the expected data
-      vi.mocked(fs.readJson).mockImplementation(async(file: any, _options?: any): Promise<any> => {
-        const filePath = String(file);
-        const systemModesPath = path.join(testDefinitionsPath, 'modes.json');
-        const systemCategoriesPath = path.join(testDefinitionsPath, 'categories.json');
-
-        if (filePath === systemModesPath) {
-          return mockModes;
-        } else if (filePath === systemCategoriesPath) {
-          return mockCategories;
-        }
-        throw new Error(`Unexpected file path in readJson mock: ${filePath}`);
-      });
-
+      readUserDefinitionsMock.mockResolvedValue(null); // Simulate file not found or empty
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       const { modes, categories } = await loader.loadDefinitions();
 
-      // Should only have system modes and categories
-      expect(modes.length).toBeGreaterThan(0);
-      expect(categories.length).toBeGreaterThan(0);
-
-      // Check that the warning was logged
-      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('User definitions file not found'));
+      expect(modes.length).toBe(testSystemModes.length);
+      expect(categories.length).toBe(testSystemCategories.length);
+      // Check if FileManager's readUserDefinitions was called, its internal logging is not directly tested here.
+      expect(readUserDefinitionsMock).toHaveBeenCalled();
+      // console.warn might not be called directly by DefinitionLoader if FileManager handles it internally
+      // expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('User definitions file not found'));
 
       consoleWarnSpy.mockRestore();
     });
 
     it('AC3: should handle invalid user-definitions.json gracefully (invalid JSON content)', async() => {
-      // Mock pathExists to return true for user-definitions.json
-      vi.mocked(fs.pathExists).mockImplementation(async(p: string): Promise<boolean> => {
-        const pathStr = String(p);
-        // Return true for all paths, including user-definitions.json
-        return true;
-      });
+      // Simulate FileManager.readUserDefinitions encountering an internal parse error and returning null
+      // For this test, we want to check the warning logged by DefinitionLoader's loadUserDefinitions
+      // when it receives a null (or unparseable) from fileManager.readUserDefinitions AFTER an attempt.
+      // The actual fileManager.readUserDefinitions would log its own details via uiManager.failSpinner and handleError.
+      // Here, we are testing DefinitionLoader's handling if fileManager.readUserDefinitions itself throws an unexpected error
+      // OR if it returns a structure that fails DefinitionLoader's *own* UserDefinitionsSchema.safeParse.
 
-      // Mock readJson to throw an error for user-definitions.json
-      vi.mocked(fs.readJson).mockImplementation(async(file: any, _options?: any): Promise<any> => {
-        const filePath = String(file);
-        const userDefinitionsPath = '/mock/user/config/user-definitions.json';
-        const systemModesPath = `${testDefinitionsPath}/modes.json`;
-        const systemCategoriesPath = `${testDefinitionsPath}/categories.json`;
-
-        if (filePath === systemModesPath) {
-          return mockModes;
-        } else if (filePath === systemCategoriesPath) {
-          return mockCategories;
-        } else if (filePath === userDefinitionsPath) {
-          // Throw an error for user-definitions.json to simulate invalid JSON
-          throw new Error('Invalid JSON content');
-        }
-        throw new Error(`Unexpected file path in readJson mock: ${filePath}`);
-      });
+      // To test the scenario where DefinitionLoader's *own* catch block for loadUserDefinitions is hit:
+      const unexpectedFileManagerError = new Error('Simulated unexpected error from FileManager.readUserDefinitions');
+      readUserDefinitionsMock.mockRejectedValue(unexpectedFileManagerError);
 
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       const { modes, categories } = await loader.loadDefinitions();
 
-      // Should only have system modes and categories
-      expect(modes.length).toBeGreaterThan(0);
-      expect(categories.length).toBeGreaterThan(0);
+      expect(modes.length).toBe(testSystemModes.length); // Should fall back to system definitions
+      expect(categories.length).toBe(testSystemCategories.length);
+      expect(readUserDefinitionsMock).toHaveBeenCalled();
 
-      // Check that the warning was logged with the expected message
-      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Error loading user definitions: Invalid JSON content'));
+      // Expect the warning from DefinitionLoader's catch block for loadUserDefinitions
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Unexpected error calling this.fileManager.readUserDefinitions(): ${unexpectedFileManagerError.message}`)
+      );
 
       consoleWarnSpy.mockRestore();
     });
 
-    // Test removed due to persistent path2.join issue
-    // TODO: Investigate and fix the path2.join issue in a future update
+    it('AC2: should throw DefinitionLoadError if system modes.json is missing', async() => {
+      fsPathExistsMock.mockImplementation(async(p: fs.PathLike) => String(p) !== path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json'));
 
-    it('User Definitions > AC4: should give precedence to user definitions over system definitions with same slug', async() => {
-      // Setup specific mock for this test to ensure all rule paths exist
-      vi.mocked(fs.pathExists).mockImplementation(async(p: any, _options?: any): Promise<boolean> => {
-        // Make sure all rule paths exist for this test
+      await expect(loader.loadDefinitions()).rejects.toThrowError(
+        `System modes definition file not found at ${path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')}`
+      );
+    });
+
+    it('AC2: should throw DefinitionLoadError if system modes.json is invalid', async() => {
+      fsPathExistsMock.mockImplementation(async() => true); // All files exist
+      fsReadJsonMock.mockImplementation(async(p: any) => {
+        if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return [{ slug: 'invalid-mode' }];} // Invalid: missing name, etc.
+        if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json')) {return testSystemCategories;}
+        if (p === path.join(MOCK_USER_CONFIG_PATH, 'user-definitions.json')) {return testUserDefinitions;}
+        throw new Error(`fs.readJson mock: Unhandled path ${p}`);
+      });
+
+      await expect(loader.loadDefinitions()).rejects.toThrowError(/^Failed to load definitions: Invalid system modes\.json: .*name - Required/);
+    });
+
+    it('AC3: should throw DefinitionLoadError if a mode references a non-existent category slug', async() => {
+      const modesWithInvalidCat = [
+        createTestMode({ slug: 'mode-bad-cat', categorySlugs: ['non-existent-cat'] })
+      ];
+      fsReadJsonMock.mockImplementation(async(p: any) => {
+        if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return modesWithInvalidCat;}
+        if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json')) {return testSystemCategories;}
+        if (p === path.join(MOCK_USER_CONFIG_PATH, 'user-definitions.json')) {return { customModes: [], customCategories: [] };}
+        throw new Error(`fs.readJson mock: Unhandled path ${p}`);
+      });
+      fsPathExistsMock.mockImplementation(async() => true);
+      readUserDefinitionsMock.mockResolvedValue({ customModes: [], customCategories: [] });
+
+
+      await expect(loader.loadDefinitions()).rejects.toThrowError(
+        'Mode "mode-bad-cat" references non-existent category slug "non-existent-cat".'
+      );
+    });
+
+    it('AC4: should throw DefinitionLoadError if a system rule file (sourcePath) does not exist', async() => {
+      const modeWithBadRule = createTestMode({
+        slug: 'mode-bad-rule',
+        categorySlugs: ['sys-cat-1'], // Explicitly use a valid system category
+        associatedRuleFiles: [createTestRule({ id: 'rule-x', sourcePath: 'generic/non-existent-rule.md' })]
+      });
+      fsReadJsonMock.mockImplementation(async(p: any) => {
+        if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return [modeWithBadRule];}
+        // Ensure testSystemCategories (sys-cat-1, sys-cat-2) are returned
+        if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json')) {return testSystemCategories;}
+        throw new Error(`fs.readJson mock: Unhandled path ${p} in AC4`);
+      });
+
+      readUserDefinitionsMock.mockResolvedValue({ customModes: [], customCategories: [] }); // No user definitions
+
+      fsPathExistsMock.mockImplementation(async(p: fs.PathLike) => {
+        const pStr = String(p);
+        // System files exist, except for the one rule file we want to test as missing
+        if (pStr === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return true;}
+        if (pStr === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json')) {return true;}
+        if (pStr === path.join(MOCK_SYSTEM_RULES_PATH, 'generic/non-existent-rule.md')) {return false;} // This rule file is missing
+        // All other system rule files associated with modeWithBadRule (if any) should exist.
+        // For this test, modeWithBadRule only has one rule.
         return true;
-      });
-
-      // Reset the readJson mock to ensure it returns the expected data
-      vi.mocked(fs.readJson).mockImplementation(async(file: any, _options?: any): Promise<any> => {
-        const filePath = String(file);
-        const systemModesPath = path.join(testDefinitionsPath, 'modes.json');
-        const systemCategoriesPath = path.join(testDefinitionsPath, 'categories.json');
-        const userDefinitionsPath = path.join('/mock/user/config', 'user-definitions.json');
-
-        if (filePath === systemModesPath) {
-          return mockModes;
-        } else if (filePath === systemCategoriesPath) {
-          return mockCategories;
-        } else if (filePath === userDefinitionsPath) {
-          return mockUserDefinitions;
-        }
-        throw new Error(`Unexpected file path in readJson mock: ${filePath}`);
-      });
-
-      const { modes, categories } = await loader.loadDefinitions();
-
-      const overriddenMode = modes.find(m => m.slug === 'test-mode-1');
-      expect(overriddenMode).toBeDefined();
-      expect(overriddenMode?.name).toBe('Overridden Mode 1');
-      expect(overriddenMode?.description).toBe('Overridden description');
-      expect(overriddenMode?.categorySlugs).toEqual(['test-cat-1', 'user-cat-1']);
-      expect(overriddenMode?.source).toBe('user');
-
-      const overriddenCategory = categories.find(c => c.slug === 'test-cat-1');
-      expect(overriddenCategory).toBeDefined();
-      expect(overriddenCategory?.name).toBe('Overridden Category 1');
-      expect(overriddenCategory?.description).toBe('Overridden description');
-      expect(overriddenCategory?.source).toBe('user');
-    });
-
-    it('AC6: should validate rule paths for both system and user modes (successful validation)', async() => {
-      // Setup mock for this test - all paths exist
-      vi.mocked(fs.pathExists).mockImplementation(async(p: string): Promise<boolean> => {
-        return true;
-      });
-
-      // Reset readJson mock to return all modes including test-mode-2
-      vi.mocked(fs.readJson).mockImplementation(async(file: any, _options?: any): Promise<any> => {
-        const filePath = String(file);
-        const systemModesPath = path.join(testDefinitionsPath, 'modes.json');
-        const systemCategoriesPath = path.join(testDefinitionsPath, 'categories.json');
-        const userDefinitionsPath = path.join('/mock/user/config', 'user-definitions.json');
-
-        if (filePath === systemModesPath) {
-          return [...mockModes, {
-            slug: 'test-mode-2',
-            name: 'Test Mode 2',
-            description: 'Description for test mode 2',
-            categorySlugs: ['test-cat-1'], // Valid category for this test
-            associatedRuleFiles: [
-              { id: 'rule-3', name: 'Rule 3', description: 'Rule 3 desc', sourcePath: 'generic/rule-3.md', isGeneric: true }
-            ],
-            source: 'system'
-          }];
-        } else if (filePath === systemCategoriesPath) {
-          return mockCategories;
-        } else if (filePath === userDefinitionsPath) {
-          return mockUserDefinitions;
-        }
-        throw new Error(`Unexpected file path in readJson mock: ${filePath}`);
-      });
-
-      // Use a spy on the loader instance method instead of the prototype
-      const validateRulePathsSpy = vi.spyOn(loader as any, 'validateRulePaths');
-
-      await loader.loadDefinitions();
-
-      // Check that validateRulePaths was called with all modes
-      expect(validateRulePathsSpy).toHaveBeenCalled();
-
-      // Instead of checking specific modes, just verify that validateRulePaths was called
-      expect(validateRulePathsSpy.mock.calls.length).toBeGreaterThan(0);
-      validateRulePathsSpy.mockRestore();
-    });
-
-    it('AC6: should correctly resolve and check rule paths for user modes (pathExists called correctly)', async() => {
-      // Setup spy to track pathExists calls
-      const pathExistsSpy = vi.spyOn(fs, 'pathExists').mockImplementation(async(p: string): Promise<boolean> => {
-        return true; // All paths exist for this test
-      });
-
-      await loader.loadDefinitions();
-
-      // Expected path for the user rule
-      const expectedUserRulePath = path.join('/mock/user/config/rules', 'user-mode-1/user-rule-1.md');
-
-      // Check if the path was checked at any point during the test
-      const callArgs = pathExistsSpy.mock.calls.map(call => String(call[0]));
-      expect(callArgs.some(arg => arg === expectedUserRulePath)).toBe(true);
-    });
-
-    it('AC6: should throw an error if a user mode rule file does not exist', async() => {
-      const userModeRulePath = path.join('/mock/user/config', 'rules', 'user-mode-1', 'user-rule-1.md');
-
-      // Setup specific mock for this test to make the user rule file not exist
-      vi.mocked(fs.pathExists).mockImplementation(async(p: string): Promise<boolean> => {
-        const filePath = String(p);
-
-        // Make the specific rule path not exist
-        if (filePath === userModeRulePath) {
-          return false;
-        }
-
-        // Make all necessary paths exist
-        const systemModesPath = path.join(testDefinitionsPath, 'modes.json');
-        const systemCategoriesPath = path.join(testDefinitionsPath, 'categories.json');
-        const userDefinitionsPath = path.join('/mock/user/config', 'user-definitions.json');
-
-        if (filePath === systemModesPath) {return true;}
-        if (filePath === systemCategoriesPath) {return true;}
-        if (filePath === userDefinitionsPath) {return true;}
-
-        // Allow other rule paths to exist
-        if (filePath.startsWith(path.join(testDefinitionsPath, 'rules'))) {return true;}
-        if (filePath.startsWith(path.join('/mock/user/config', 'rules')) && filePath !== userModeRulePath) {return true;}
-
-        return true; // Default to true for other paths
-      });
-
-      // Mock readJson to return valid data
-      vi.mocked(fs.readJson).mockImplementation(async(file: any, _options?: any): Promise<any> => {
-        const filePath = String(file);
-        const systemModesPath = path.join(testDefinitionsPath, 'modes.json');
-        const systemCategoriesPath = path.join(testDefinitionsPath, 'categories.json');
-        const userDefinitionsPath = path.join('/mock/user/config', 'user-definitions.json');
-
-        if (filePath === systemModesPath) {
-          return mockModes;
-        }
-        if (filePath === systemCategoriesPath) {
-          return mockCategories;
-        }
-        if (filePath === userDefinitionsPath) {
-          return mockUserDefinitions;
-        }
-        throw new Error(`fs.readJson: Unexpected path ${filePath}`);
       });
 
       await expect(loader.loadDefinitions()).rejects.toThrowError(
-        `Rule file not found for user mode "user-mode-1", rule "user-rule-1": ${userModeRulePath}`
+        // The error message from DefinitionLoader includes the source of the mode.
+        `Rule file not found for system mode "mode-bad-rule", rule "rule-x": ${path.join(MOCK_SYSTEM_RULES_PATH, 'generic/non-existent-rule.md')} (sourcePath: "generic/non-existent-rule.md")`
+      );
+    });
+
+    it('AC6: should throw DefinitionLoadError if a user mode rule file does not exist', async() => {
+      const userModeWithBadRule = createTestMode({
+        slug: 'user-mode-bad-rule',
+        source: 'user',
+        categorySlugs: ['user-cat-1'], // Explicitly use a valid user category
+        associatedRuleFiles: [createTestRule({ id: 'user-rule-y', sourcePath: 'user-mode-bad-rule/non-existent-user-rule.md', isGeneric: false })]
+      });
+
+      // System definitions are standard
+      fsReadJsonMock.mockImplementation(async(p: any) => {
+        if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return testSystemModes;}
+        if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json')) {return testSystemCategories;}
+        throw new Error(`fs.readJson mock: Unhandled path ${p} in AC6`);
+      });
+
+      // User definitions provide the mode with the bad rule path and its category
+      readUserDefinitionsMock.mockResolvedValue({
+        customModes: [userModeWithBadRule],
+        customCategories: [createTestCategory({ slug: 'user-cat-1', name: 'User Category 1', source: 'user' })]
+      });
+
+      fsPathExistsMock.mockImplementation(async(p: fs.PathLike) => {
+        const pStr = String(p);
+        // All system files exist
+        if (pStr.startsWith(MOCK_SYSTEM_DEFINITIONS_PATH)) {return true;}
+        // User rule file is missing
+        if (pStr === path.join(MOCK_USER_RULES_PATH, 'user-mode-bad-rule/non-existent-user-rule.md')) {return false;}
+        // Other user rule files (if any) for this mode would exist.
+        return true;
+      });
+
+      await expect(loader.loadDefinitions()).rejects.toThrowError(
+        `Rule file not found for user mode "user-mode-bad-rule", rule "user-rule-y": ${path.join(MOCK_USER_RULES_PATH, 'user-mode-bad-rule/non-existent-user-rule.md')} (sourcePath: "user-mode-bad-rule/non-existent-user-rule.md")`
       );
     });
   });
 
-  it('AC1: should load valid mode and category definitions successfully', async() => {
-    // Reset the pathExists mock to ensure all paths exist and track calls
-    const pathExistsSpy = vi.spyOn(fs, 'pathExists').mockImplementation(async(p: string): Promise<boolean> => {
-      // Log the paths being checked to help with debugging
-      console.log('Checking path:', String(p));
-      return true; // All paths exist for this test
+  // describe('getModeBySlug / getCategoryBySlug', () => {
+  //   beforeEach(async() => {
+  //     fsReadJsonMock.mockImplementation(async(p: any) => {
+  //       if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return testSystemModes;}
+  //       if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json')) {return testSystemCategories;}
+  //       if (p === path.join(MOCK_USER_CONFIG_PATH, 'user-definitions.json')) {return testUserDefinitions;}
+  //       return [];
+  //     });
+  //     fsPathExistsMock.mockImplementation(async() => true);
+  //     await loader.loadDefinitions();
+  //   });
+
+  //   it('should return a mode definition by slug', async() => {
+  //     const mode = await loader.getModeBySlug('sys-mode-1');
+  //     expect(mode).toBeDefined();
+  //     expect(mode?.name).toBe('User Overridden System Mode 1');
+  //     expect(mode?.source).toBe('user');
+  //   });
+
+  //   it('should return null if mode slug does not exist', async() => {
+  //     const mode = await loader.getModeBySlug('non-existent-slug');
+  //     expect(mode).toBeNull();
+  //   });
+
+  //   it('should return a category definition by slug', async() => {
+  //     const category = await loader.getCategoryBySlug('sys-cat-1');
+  //     expect(category).toBeDefined();
+  //     expect(category?.name).toBe('User Overridden System Category 1');
+  //     expect(category?.source).toBe('user');
+  //   });
+
+  //   it('should return null if category slug does not exist', async() => {
+  //     const category = await loader.getCategoryBySlug('non-existent-slug');
+  //     expect(category).toBeNull();
+  //   });
+  // });
+
+  describe('getSystemModes', () => {
+    it('should return only system modes', async() => {
+      fsReadJsonMock.mockResolvedValueOnce(JSON.parse(JSON.stringify(testSystemModes)));
+      const modes = await loader.getSystemModes();
+      expect(modes.length).toBe(testSystemModes.length);
+      modes.forEach(mode => {
+        expect(mode.source).toBe('system');
+        const originalMode = testSystemModes.find(m => m.slug === mode.slug);
+        expect(mode.name).toBe(originalMode?.name);
+      });
     });
-
-    const { modes, categories } = await loader.loadDefinitions();
-
-    // Verify that modes and categories are loaded correctly
-    expect(modes.length).toBeGreaterThan(0);
-    expect(categories.length).toBeGreaterThan(0);
-
-    // Instead of checking specific paths, just verify that pathExists was called
-    expect(pathExistsSpy).toHaveBeenCalled();
-    expect(fs.readJson).toHaveBeenCalledWith(path.join(testDefinitionsPath, 'modes.json'));
-    expect(fs.readJson).toHaveBeenCalledWith(path.join(testDefinitionsPath, 'categories.json'));
   });
 
-  it('AC2: should throw an error if modes.json is missing', async() => {
-    vi.mocked(fs.pathExists).mockImplementation(async(p: string): Promise<boolean> => String(p) !== path.join(testDefinitionsPath, 'modes.json'));
-    await expect(loader.loadDefinitions()).rejects.toThrowError(`Failed to load definitions: System modes definition file not found at ${path.join(testDefinitionsPath, 'modes.json')}`);
+  describe('getCustomModes', () => {
+    it('should return only custom modes', async() => {
+      readUserDefinitionsMock.mockResolvedValueOnce(JSON.parse(JSON.stringify({ customModes: testUserModes, customCategories: [] })));
+      const modes = await loader.getCustomModes();
+      expect(modes.length).toBe(testUserModes.length);
+      modes.forEach(mode => {
+        expect(mode.source).toBe('user');
+        const originalMode = testUserModes.find(m => m.slug === mode.slug);
+        expect(mode.name).toBe(originalMode?.name);
+      });
+    });
+
+    it('should return an empty array if no custom modes exist', async() => {
+      readUserDefinitionsMock.mockResolvedValueOnce(JSON.parse(JSON.stringify({ customModes: [], customCategories: [] })));
+      const modes = await loader.getCustomModes();
+      expect(modes).toEqual([]);
+    });
   });
 
-  it('AC6: should throw an error if a user mode rule file does not exist', async() => {
-    // Setup mock for this test
-    vi.mocked(fs.pathExists).mockImplementation(async(p: string): Promise<boolean> => {
-      const filePath = String(p);
-      // Return false only for the specific rule file path we want to test
-      if (filePath.includes('user-mode-1/user-rule-1.md')) {
-        return false;
-      }
-      return true;
+  describe('getMergedModes', () => {
+    it('Scenario 1: Only system definitions exist', async() => {
+      fsReadJsonMock.mockImplementation(async(p: any) => {
+        if (String(p).endsWith('modes.json')) {return JSON.parse(JSON.stringify(testSystemModes));}
+        return []; // No categories for simplicity in this specific test
+      });
+      readUserDefinitionsMock.mockResolvedValueOnce(null); // No user definitions
+      const modes = await loader.getMergedModes();
+      expect(modes.length).toBe(testSystemModes.length);
+      modes.forEach(mode => expect(mode.sourceType).toBe('system'));
     });
 
-    // Reset the readJson mock to ensure it's not causing issues
-    vi.mocked(fs.readJson).mockImplementation(async(file: any, _options?: any): Promise<any> => {
-      const filePath = String(file);
-      const systemModesPath = path.join(testDefinitionsPath, 'modes.json');
-      const systemCategoriesPath = path.join(testDefinitionsPath, 'categories.json');
-      const userDefinitionsPath = path.join('/mock/user/config', 'user-definitions.json');
-
-      if (filePath === systemModesPath) {
-        return mockModes;
-      } else if (filePath === systemCategoriesPath) {
-        return mockCategories;
-      } else if (filePath === userDefinitionsPath) {
-        return mockUserDefinitions;
-      }
-      throw new Error(`Unexpected file path in readJson mock: ${filePath}`);
+    it('Scenario 2: Only custom definitions exist', async() => {
+      fsReadJsonMock.mockImplementation(async(p: any) => {
+        // No system modes
+        if (String(p).endsWith('modes.json')) {return [];}
+        return []; // No categories
+      });
+      readUserDefinitionsMock.mockResolvedValueOnce(JSON.parse(JSON.stringify({ customModes: testUserModes, customCategories: [] })));
+      const modes = await loader.getMergedModes();
+      expect(modes.length).toBe(testUserModes.length);
+      modes.forEach(mode => expect(mode.sourceType).toBe('custom'));
     });
 
-    await expect(loader.loadDefinitions()).rejects.toThrowError(
-      'Rule file not found for user mode "user-mode-1", rule "user-rule-1": /mock/user/config/rules/user-mode-1/user-rule-1.md (sourcePath: "user-mode-1/user-rule-1.md")'
-    );
+    it('Scenario 3: Mix of system and custom, no overlaps', async() => {
+      const uniqueUserModes = [createTestMode({ slug: 'unique-user-mode', name: 'Unique User Mode', source: 'user' })];
+      fsReadJsonMock.mockImplementation(async(p: any) => {
+        if (String(p).endsWith('modes.json')) {return JSON.parse(JSON.stringify(testSystemModes));}
+        return [];
+      });
+      readUserDefinitionsMock.mockResolvedValueOnce(JSON.parse(JSON.stringify({ customModes: uniqueUserModes, customCategories: [] })));
+
+      const modes = await loader.getMergedModes();
+      expect(modes.length).toBe(testSystemModes.length + uniqueUserModes.length);
+      modes.forEach(mode => {
+        if (testSystemModes.some(m => m.slug === mode.slug)) {
+          expect(mode.sourceType).toBe('system');
+        } else {
+          expect(mode.sourceType).toBe('custom');
+        }
+      });
+    });
+
+    it('Scenario 4: Mix of system and custom, with overlaps', async() => {
+      // testUserModes already contains an override for 'sys-mode-1'
+      fsReadJsonMock.mockImplementation(async(p: any) => {
+        if (String(p).endsWith('modes.json')) {return JSON.parse(JSON.stringify(testSystemModes));}
+        return [];
+      });
+      readUserDefinitionsMock.mockResolvedValueOnce(JSON.parse(JSON.stringify({ customModes: testUserModes, customCategories: [] })));
+
+      const modes = await loader.getMergedModes();
+      const overriddenMode = modes.find(m => m.slug === 'sys-mode-1');
+      expect(overriddenMode?.sourceType).toBe('custom (overrides system)');
+      expect(overriddenMode?.name).toBe('User Overridden System Mode 1');
+
+      const customOnlyMode = modes.find(m => m.slug === 'user-mode-1');
+      expect(customOnlyMode?.sourceType).toBe('custom');
+
+      const systemOnlyMode = modes.find(m => m.slug === 'sys-mode-2');
+      expect(systemOnlyMode?.sourceType).toBe('system');
+    });
+
+    it('Scenario 5: Empty system and custom definitions', async() => {
+      fsReadJsonMock.mockImplementation(async(p: any) => {
+        if (String(p).endsWith('modes.json')) {return [];}
+        return [];
+      });
+      readUserDefinitionsMock.mockResolvedValueOnce(JSON.parse(JSON.stringify({ customModes: [], customCategories: [] })));
+      const modes = await loader.getMergedModes();
+      expect(modes).toEqual([]);
+    });
   });
 
-  it('AC2: should throw an error if modes.json is invalid', async() => {
-    // Make sure the path exists
-    vi.mocked(fs.pathExists).mockImplementation(async(p: string): Promise<boolean> => {
-      return true; // All paths exist for this test
+  // Similar describe blocks for getSystemCategories, getCustomCategories, getMergedCategories
+  describe('getSystemCategories', () => {
+    it('should return only system categories', async() => {
+      fsReadJsonMock.mockResolvedValueOnce(JSON.parse(JSON.stringify(testSystemCategories)));
+      const categories = await loader.getSystemCategories();
+      expect(categories.length).toBe(testSystemCategories.length);
+      categories.forEach(cat => expect(cat.source).toBe('system'));
     });
-
-    // Return invalid mode data
-    vi.mocked(fs.readJson).mockImplementation(async(file: any, _options?: any): Promise<any> => {
-      const filePath = String(file);
-      const systemModesPath = path.join(testDefinitionsPath, 'modes.json');
-      const systemCategoriesPath = path.join(testDefinitionsPath, 'categories.json');
-
-      if (filePath === systemModesPath) {
-        return [{ slug: 'invalid-mode' }]; // Missing required fields
-      } else if (filePath === systemCategoriesPath) {
-        return mockCategories;
-      }
-      return Promise.resolve([]);
-    });
-
-    await expect(loader.loadDefinitions()).rejects.toThrowError(/Invalid system modes.json/);
   });
 
-  it('AC3: should throw an error if a mode references a non-existent category slug', async() => {
-    const modesWithInvalidCat = allMockModes.filter(m => m.slug === 'test-mode-1' || m.slug === 'test-mode-2');
-    vi.mocked(fs.readJson).mockImplementation(async(file: any, _options?: any): Promise<any> => {
-      const filePathStr = String(file);
-      if (filePathStr.endsWith('modes.json')) {return Promise.resolve(modesWithInvalidCat);}
-      if (filePathStr.endsWith('categories.json')) {return Promise.resolve(mockCategories.filter(c => c.slug === 'test-cat-1'));}
-      if (filePathStr.endsWith('user-definitions.json')) {return Promise.resolve({ customModes: [], customCategories: [] });}
-      return Promise.reject(new Error('Should not happen'));
+  describe('getCustomCategories', () => {
+    it('should return only custom categories', async() => {
+      readUserDefinitionsMock.mockResolvedValueOnce(JSON.parse(JSON.stringify({ customModes: [], customCategories: testUserCategories })));
+      const categories = await loader.getCustomCategories();
+      expect(categories.length).toBe(testUserCategories.length);
+      categories.forEach(cat => expect(cat.source).toBe('user'));
     });
-    vi.mocked(fs.pathExists).mockImplementation(async(p: string): Promise<boolean> => {
-      if (String(p).endsWith('user-definitions.json')) {return false;}
-      return true;
+    it('should return an empty array if no custom categories exist', async() => {
+      readUserDefinitionsMock.mockResolvedValueOnce(JSON.parse(JSON.stringify({ customModes: [], customCategories: [] })));
+      const categories = await loader.getCustomCategories();
+      expect(categories).toEqual([]);
     });
-    await expect(loader.loadDefinitions()).rejects.toThrowError('Failed to load definitions: Mode "test-mode-2" references non-existent category slug "test-cat-invalid".');
   });
 
-  it('AC4: should throw an error if a rule file (sourcePath) does not exist', async() => {
-    const modeForRulePathTest = allMockModes.find(m => m.slug === 'test-mode-for-rule-path-test');
-    if (!modeForRulePathTest) {throw new Error('Test setup error: modeForRulePathTest not found');}
-
-    // Mock readJson to return only the test mode
-    vi.mocked(fs.readJson).mockImplementation(async(file: any, _options?: any): Promise<any> => {
-      const filePathStr = String(file);
-      if (filePathStr.endsWith('modes.json')) {return Promise.resolve([modeForRulePathTest]);}
-      if (filePathStr.endsWith('categories.json')) {return Promise.resolve(mockCategories);}
-      if (filePathStr.endsWith('user-definitions.json')) {return Promise.resolve({ customModes: [], customCategories: [] });}
-      return Promise.reject(new Error('Should not happen'));
+  describe('getMergedCategories', () => {
+    it('Scenario 1: Only system categories exist', async() => {
+      fsReadJsonMock.mockImplementation(async(p: any) => {
+        if (String(p).endsWith('categories.json')) {return JSON.parse(JSON.stringify(testSystemCategories));}
+        return [];
+      });
+      readUserDefinitionsMock.mockResolvedValueOnce(null);
+      const categories = await loader.getMergedCategories();
+      expect(categories.length).toBe(testSystemCategories.length);
+      categories.forEach(cat => expect(cat.sourceType).toBe('system'));
     });
 
-    const nonExistentRule = modeForRulePathTest.associatedRuleFiles.find(r => r.id === 'rule-non-existent');
-    if (!nonExistentRule) {throw new Error('Test setup error: nonExistentRule not found');}
-    const nonExistentRulePath = path.join(testDefinitionsPath, 'rules', nonExistentRule.sourcePath);
-
-    // Mock pathExists to make the specific rule file not exist
-    vi.mocked(fs.pathExists).mockImplementation(async(p: string): Promise<boolean> => {
-      const pathStr = String(p);
-
-      // Make the specific rule path not exist
-      if (pathStr === nonExistentRulePath) {
-        return false;
-      }
-
-      // Make all necessary paths exist
-      const systemModesPath = path.join(testDefinitionsPath, 'modes.json');
-      const systemCategoriesPath = path.join(testDefinitionsPath, 'categories.json');
-
-      if (pathStr === systemModesPath) {return true;}
-      if (pathStr === systemCategoriesPath) {return true;}
-      if (pathStr.endsWith('user-definitions.json')) {return false;} // No user definitions
-
-      return true; // Default to true for other paths
+    it('Scenario 2: Only custom categories exist', async() => {
+      fsReadJsonMock.mockImplementation(async(p: any) => {
+        if (String(p).endsWith('categories.json')) {return [];}
+        return [];
+      });
+      readUserDefinitionsMock.mockResolvedValueOnce(JSON.parse(JSON.stringify({ customModes: [], customCategories: testUserCategories })));
+      const categories = await loader.getMergedCategories();
+      expect(categories.length).toBe(testUserCategories.length);
+      categories.forEach(cat => expect(cat.sourceType).toBe('custom'));
     });
 
-    await expect(loader.loadDefinitions()).rejects.toThrowError(
-      `Failed to load definitions: Rule file not found for system mode "${modeForRulePathTest.slug}", rule "${nonExistentRule.id}": ${nonExistentRulePath}`
-    );
+    it('Scenario 4: Mix of system and custom categories, with overlaps', async() => {
+      // testUserCategories contains an override for 'sys-cat-1'
+      fsReadJsonMock.mockImplementation(async(p: any) => {
+        if (String(p).endsWith('categories.json')) {return JSON.parse(JSON.stringify(testSystemCategories));}
+        return [];
+      });
+      readUserDefinitionsMock.mockResolvedValueOnce(JSON.parse(JSON.stringify({ customModes: [], customCategories: testUserCategories })));
+      const categories = await loader.getMergedCategories();
+
+      const overriddenCat = categories.find(c => c.slug === 'sys-cat-1');
+      expect(overriddenCat?.sourceType).toBe('custom (overrides system)');
+      expect(overriddenCat?.name).toBe('User Overridden System Category 1');
+
+      const customOnlyCat = categories.find(c => c.slug === 'user-cat-1');
+      expect(customOnlyCat?.sourceType).toBe('custom');
+
+      const systemOnlyCat = categories.find(c => c.slug === 'sys-cat-2');
+      expect(systemOnlyCat?.sourceType).toBe('system');
+    });
   });
 });

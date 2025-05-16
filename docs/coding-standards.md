@@ -91,8 +91,8 @@ This document outlines the coding standards and conventions to be followed for t
 1.  **Coverage:** Aim for high test coverage (>80%) for core logic (`src/core/`) and command handlers (`src/commands/`). Use coverage reports to identify gaps.
 2.  **Clarity:** Write clear and descriptive test names using `describe` and `it` blocks (e.g., `describe('DefinitionLoader', () => { it('should load modes correctly from valid JSON', () => { ... }); });`).
 3.  **Isolation:** Unit tests should test components in isolation. Use Vitest's mocking capabilities (`vi.mock`, `vi.fn`) to mock dependencies (like file system access, external libraries).
-4.  **Integration Tests:** Verify interactions between components (e.g., ensure the `init` command correctly calls `ModeSelector` and `FileManager`). These may involve testing against temporary directories or mocked file systems.
-5.  **Framework:** Use Vitest as defined in [`docs/tech-stack.md`](docs/tech-stack.md:0) and configured in [`vitest.config.ts`](vitest.config.ts:0).
+4.  **Integration Tests:** Verify interactions between components (e.g., ensure the `init` command correctly calls `ModeSelector` and `FileManager`). These leverage the global `memfs` mock for file system interactions and global utility mocks. `UIManager` prompt integrations are tested with `@inquirer/testing`.
+5.  **Framework:** Use Vitest as defined in [`docs/tech-stack.md`](docs/tech-stack.md:0) and configured in [`vitest.config.ts`](vitest.config.ts:0). Adhere to the testing strategy outlined in [`docs/testing-strategy.md`](docs/testing-strategy.md:0), utilizing global mocks, fixtures, and helpers.
 
 ## Documentation
 
@@ -107,3 +107,4 @@ This document outlines the coding standards and conventions to be followed for t
 | ------------- | ---------- | ------- | ------------------------------- | -------------- |
 | Initial draft | 2025-05-12 | 0.1     | Initial coding standards draft. | Architect Agent |
 | Revision      | 2025-05-12 | 0.2     | Expanded sections, added detail. | Architect Agent |
+| Test Infra Ref | 2025-05-15 | 0.3     | Updated testing section to reference new testing infrastructure and strategy. | Architect Agent |

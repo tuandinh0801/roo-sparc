@@ -5,7 +5,6 @@ import ora, { Ora } from 'ora';
 import Table from 'cli-table3';
 import { pastel } from 'gradient-string';
 import inquirer, {
-  QuestionCollection,
   InputQuestionOptions,
   ListQuestionOptions,
   CheckboxQuestionOptions,
@@ -304,24 +303,34 @@ export class UIManager {
   // --- Table Display Method ---
 
   /**
-   * Displays data in a formatted table.
+   * Displays data in a formatted table using `cli-table3`.
+   * If the `rows` array is empty, no table will be drawn.
+   *
    * @param {string[]} headers - An array of strings for table headers.
-   * @param {(string | number | boolean | null | undefined)[][]} rows - An array of rows, where each row is an array of cell values.
-   * @param {Table.TableConstructorOptions} [tableOptions] - Optional cli-table3 constructor options.
+   * @param {(string | number)[][]} rows - An array of rows, where each row is an array of cell values (string or number).
+   * @param {Table.TableConstructorOptions} [tableOptions] - Optional `cli-table3` constructor options to customize table appearance (e.g., `colWidths`).
    */
   public displayTable(
     headers: string[],
-    rows: (string | number | boolean | null | undefined)[][],
+    rows: (string | number)[][],
     tableOptions?: Table.TableConstructorOptions
   ): void {
+    if (!rows || rows.length === 0) {
+      // Do not attempt to draw a table if there are no rows.
+      // The calling command is responsible for any "not found" messages.
+      return;
+    }
+
     const table = new Table({
       head: headers.map(header => this.chalk.cyan(header)),
-      colWidths: headers.map(() => 20), // Default column width, can be customized
-      style: { 'head': [], 'border': [] }, // Basic styling, can be customized
+      // Removed default colWidths to allow cli-table3 to auto-size by default.
+      // Users can pass custom colWidths via tableOptions if needed.
+      style: { 'head': ['cyan'], 'border': ['grey'] }, // Default styling
       ...tableOptions,
     });
 
     rows.forEach(row => {
+      // Ensure all cell values are converted to strings for cli-table3
       table.push(row.map(cell => (cell === null || cell === undefined ? '' : String(cell))));
     });
 
@@ -358,20 +367,3 @@ export class UIManager {
 
 // Export a singleton instance for convenience
 export const uiManager = new UIManager();
-
-// Export standalone functions for easier use in commands, using the singleton instance
-export function displayTable(
-  headers: string[],
-  rows: (string | number | boolean | null | undefined)[][],
-  tableOptions?: Table.TableConstructorOptions
-): void {
-  uiManager.displayTable(headers, rows, tableOptions);
-}
-
-export function showMessage(
-  type: 'info' | 'success' | 'warning' | 'error',
-  message: string,
-  title?: string
-): void {
-  uiManager.showMessage(type, message, title);
-}

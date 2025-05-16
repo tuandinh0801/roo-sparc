@@ -61,7 +61,11 @@ This document outlines the technology stack chosen for the Roo Init CLI tool, fo
 
 - **Testing Framework:** Vitest
   - **Version:** `^1.6.0` [Fixed version]
-  - **Justification:** Modern, fast testing framework compatible with TypeScript projects. Offers a Jest-compatible API, making it familiar to many developers. Suitable for unit and integration tests.
+  - **Configuration:** Utilizes `pool: 'forks'` for better test isolation in an I/O-heavy CLI environment. Global setup files (`setupFiles`) are used for mocks (e.g., in-memory file system with `memfs`, utility mocks).
+  - **Justification:** Modern, fast testing framework compatible with TypeScript projects. Offers a Jest-compatible API. Suitable for unit, integration, and E2E tests.
+  - **Key Supporting Libraries for Testing:**
+    - **`memfs`**: Used for creating a global in-memory file system mock, enabling faster and more reliable file system tests by avoiding actual disk I/O.
+    - **`@inquirer/testing`**: Official library for testing Inquirer-based interactive prompts, allowing for realistic simulation of user interactions.
 
 - **TypeScript Compiler:** `tsc` (via TypeScript package)
   - **Justification:** Standard compiler for TypeScript projects. Used to transpile TS source code to JavaScript for execution.
@@ -76,3 +80,4 @@ This document outlines the technology stack chosen for the Roo Init CLI tool, fo
 | Change        | Date       | Version | Description                  | Author         |
 | ------------- | ---------- | ------- | ---------------------------- | -------------- |
 | Initial draft | 2025-05-12 | 0.1     | Initial tech stack selection | Architect Agent |
+| Test Enhancements | 2025-05-15 | 0.2     | Added `memfs` and `@inquirer/testing` to testing tools, noted Vitest `pool: 'forks'` config. | Architect Agent |

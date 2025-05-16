@@ -4,6 +4,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    pool: 'forks',
+    reporters: ['dot'],
     coverage: {
       provider: 'v8', // or 'istanbul'
       reporter: ['text', 'json', 'html'],
@@ -17,6 +19,10 @@ export default defineConfig({
       'src/**/*.test.mts',
       'tests/**/*.spec.mts',
       'tests/**/*.test.mts',
+    ],
+    setupFiles: [
+      './tests/setup/memfs-setup.ts',
+      './tests/setup/globalUtilityMocks.ts'
     ],
   },
 });

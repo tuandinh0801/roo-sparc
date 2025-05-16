@@ -6,7 +6,7 @@ The Roo Init CLI is a Node.js application built with TypeScript, designed to str
 
 New with Epic 4, the CLI now supports user-defined custom modes and categories, which are stored globally in the user's configuration directory (e.g., `~/.config/roo-init/`) and managed via a new `roo-init manage` command suite offering CRUD operations. This includes an in-CLI mechanism for creating and editing custom Markdown rule files, leveraging `inquirer`'s editor prompt capabilities. The `DefinitionLoader` service has been enhanced to load both bundled system definitions and these user-defined custom definitions, with custom definitions taking precedence in case of slug conflicts.
 
-Key technologies include `commander` for argument parsing, `inquirer` for interactive prompts (including editor prompts for rule content), `fs-extra` for robust file system operations (for both project and global user configurations), and libraries like `ora`, `boxen`, `cli-table3`, and `gradient-string` for an enhanced CLI user experience. The architecture emphasizes modularity and Dependency Injection (DI) for core services, separating concerns between command handling (for both `init` and `manage` commands), core logic (definition loading from bundled and user sources, mode selection, file management), and UI/utilities. This aims for high maintainability, testability, and suitability for AI agent implementation, aligning with the goals outlined in the PRD ([`docs/prd.md:9`](docs/prd.md:9)).
+Key technologies include `commander` for argument parsing, `inquirer` for interactive prompts (including editor prompts for rule content), `fs-extra` for robust file system operations (for both project and global user configurations), and libraries like `ora`, `boxen`, `cli-table3`, and `gradient-string` for an enhanced CLI user experience. The architecture emphasizes modularity and Dependency Injection (DI) for core services, separating concerns between command handling (for both `init` and `manage` commands), core logic (definition loading from bundled and user sources, mode selection, file management), and UI/utilities. This is further supported by a comprehensive testing strategy (detailed in [`docs/testing-strategy.md`](docs/testing-strategy.md:0)) utilizing Vitest with global mocks (e.g., `memfs` for file system, centralized utilities), `@inquirer/testing` for interactive prompt validation, and reusable test fixtures, aiming for high maintainability, testability, and suitability for AI agent implementation, aligning with the goals outlined in the PRD ([`docs/prd.md:9`](docs/prd.md:9)).
 
 ## High-Level Overview
 
@@ -239,6 +239,12 @@ graph TD
 - **Definition Merging & Precedence:** The `DefinitionLoader` service merges system and user-global definitions, with **user-defined custom definitions taking precedence (overwriting system definitions) in case of slug conflicts.** Justification: Empowers users to override or extend system defaults seamlessly.
 - **Centralized UI Management (`src/utils/uiManager.ts`):** Consolidates CLI output styling and all interactive prompt logic (using `inquirer`).
 - **Centralized Error Handling (`src/utils/errorHandler.ts`):** Consistent error reporting and exit codes.
+- **Comprehensive Testing Infrastructure:** The project employs a robust testing setup (see [`docs/testing-strategy.md`](docs/testing-strategy.md:0)) featuring a two-tier approach with Unit and End-to-End (E2E) tests:
+    - Vitest as the primary test runner, configured with `pool: 'forks'` and `setupFiles`.
+    - **Unit Tests:** Focus on isolating and verifying individual components (core services, utilities), heavily utilizing global mocks (`memfs`, `UIManager`, `errorHandler.handleError`) and `@inquirer/testing` for detailed prompt validation.
+    - **E2E Tests:** Validate complete user workflows by running the compiled CLI. These tests cover the orchestration of services by command handlers and utilize reusable fixtures (`tmpdir-fixture.ts`) and CLI execution helpers (`cliTestRunner.ts`).
+    - **Shared Resources:** Global in-memory file system mocking (`memfs`), centralized utility mocks, shared test data factories, and tools like `@inquirer/testing` support both testing levels.
+- **Justification:** Ensures high code quality, reliability, and maintainability. Facilitates safer refactoring and faster development cycles by providing strong confidence in the application's behavior through focused unit verification and overall E2E validation.
 
 ## Core Workflow / Sequence Diagrams (Optional)
 
@@ -277,3 +283,4 @@ graph TD
 | Initial draft | 2025-05-12 | 0.1     | Initial architecture draft                                                                                                                | Architect Agent |
 | Revision      | 2025-05-12 | 0.2     | Updated tech stack (inquirer, UI libs), emphasized DI, refined component descriptions and interactions.                                     | Architect Agent |
 | Epic 4 Update | 2025-05-14 | 0.3     | Incorporated architectural changes for Epic 4: User-defined custom modes/categories, `manage` commands, global user storage, `inquirer`. | Architect Agent |
+| Test Infra Update | 2025-05-15 | 0.4     | Added details about the enhanced testing infrastructure to summary and key decisions.                                                    | Architect Agent |

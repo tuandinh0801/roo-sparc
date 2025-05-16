@@ -1,30 +1,47 @@
 import { CategoryDefinition as Category, ModeDefinition as Mode } from '../types/domain.js';
 import { InvalidFlagArgumentError } from '../utils/errorHandler.js';
 import { UIManager } from '../utils/uiManager.js';
+import { DefinitionLoader } from './DefinitionLoader.js'; // Added import
 
 /**
  * Handles interactive mode selection using categories and modes.
  */
 export class ModeSelector {
-  private categories: Category[];
-  private modes: Mode[];
+  private categories: Category[] | null = null;
+  private modes: Mode[] | null = null;
+  private definitionLoader: DefinitionLoader; // Added DefinitionLoader
+  private uiManager: UIManager;
 
   /**
-   * Initializes the ModeSelector with categories and modes.
-   * @param categories - An array of Category objects.
-   * @param modes - An array of Mode objects.
+   * Initializes the ModeSelector.
+   * Definitions are loaded on demand.
+   * @param definitionLoader - Instance of DefinitionLoader.
    * @param uiManager - Instance of UIManager for UI interactions.
    */
-  constructor(categories: Category[], modes: Mode[], private uiManager: UIManager) {
-    this.categories = categories;
-    this.modes = modes;
+  constructor(definitionLoader: DefinitionLoader, uiManager: UIManager) {
+    this.definitionLoader = definitionLoader;
+    this.uiManager = uiManager;
   }
+
+  private async ensureDefinitionsLoaded(): Promise<void> {
+    if (!this.categories || !this.modes) {
+      const { modes, categories } = await this.definitionLoader.loadDefinitions();
+      this.modes = modes;
+      this.categories = categories;
+    }
+  }
+
 
   /**
    * Prompts the user to select a category and then a mode within that category.
    * @returns A Promise that resolves to the selected Mode object, or null if selection is cancelled.
    */
   public async selectMode(): Promise<Mode | null> {
+    await this.ensureDefinitionsLoaded();
+    if (!this.categories || !this.modes) { // Should not happen if ensureDefinitionsLoaded works
+      this.uiManager.printError('Definitions could not be loaded for mode selection.');
+      return null;
+    }
     // Placeholder for category selection logic
     const selectedCategory = await this.promptForCategory();
     if (!selectedCategory) {
@@ -42,6 +59,11 @@ export class ModeSelector {
    * @returns A Promise that resolves to an array of selected mode slugs.
    */
   public async selectModesInteractively(): Promise<string[]> {
+    await this.ensureDefinitionsLoaded();
+    if (!this.categories || !this.modes) {
+      this.uiManager.printError('Definitions could not be loaded for interactive mode selection.');
+      return [];
+    }
     const allSelectedModeSlugs: string[] = [];
     let keepSelectingCategories = true;
 
@@ -62,7 +84,7 @@ export class ModeSelector {
 
       // After selecting modes from a category (or if no modes were selected from it),
       // ask if they want to pick another category.
-      if (this.categories.length > 1) { // Only ask if there are other categories to choose from
+      if (this.categories && this.categories.length > 1) { // Only ask if there are other categories to choose from
         try {
           keepSelectingCategories = await this.uiManager.promptConfirm({
             message: 'Do you want to select modes from another category?',
@@ -87,7 +109,8 @@ export class ModeSelector {
    * @returns A Promise that resolves to the selected Category object, or null.
    */
   private async promptForCategory(): Promise<Category | null> {
-    if (this.categories.length === 0) {
+    // Relies on ensureDefinitionsLoaded being called by the public method
+    if (!this.categories || this.categories.length === 0) {
       this.uiManager.printWarning('No categories available for selection.');
       return null;
     }
@@ -121,6 +144,8 @@ export class ModeSelector {
    * @returns A Promise that resolves to the selected Mode object, or null.
    */
   private async promptForMode(category: Category): Promise<Mode | null> {
+    // Relies on ensureDefinitionsLoaded being called by the public method
+    if (!this.modes) {return null;}
     const modesInCategory = this.modes.filter(mode => mode.categorySlugs.includes(category.slug));
 
     if (modesInCategory.length === 0) {
@@ -157,6 +182,8 @@ export class ModeSelector {
    * @returns A Promise that resolves to an array of selected mode slugs.
    */
   private async promptForModesFromCategory(category: Category): Promise<string[]> {
+    // Relies on ensureDefinitionsLoaded being called by the public method
+    if (!this.modes) {return [];}
     const modesInCategory = this.modes.filter(mode => mode.categorySlugs.includes(category.slug));
 
     if (modesInCategory.length === 0) {
@@ -200,6 +227,15 @@ export class ModeSelector {
     modesFlagValue?: string,
     categoryFlagValue?: string,
   ): Promise<string[]> {
+    await this.ensureDefinitionsLoaded();
+    if (!this.categories || !this.modes) {
+      this.uiManager.printError('Definitions could not be loaded for flag resolution.');
+      // Decide on behavior: throw, or return empty with errors?
+      // For now, consistent with original intent, let's throw if critical info missing.
+      // However, resolveModesFromFlags is expected to throw InvalidFlagArgumentError for bad slugs.
+      // If definitions themselves are missing, that's a more fundamental issue.
+      throw new Error('Mode and category definitions are not available for flag resolution.');
+    }
     const resolvedModeSlugs = new Set<string>();
     const invalidSlugs: string[] = [];
 
@@ -268,6 +304,15 @@ export class ModeSelector {
       invalidModeSlugs: string[];
       invalidCategorySlugs: string[];
     }> {
+    await this.ensureDefinitionsLoaded();
+    if (!this.categories || !this.modes) {
+      this.uiManager.printError('Definitions could not be loaded for non-interactive selection.');
+      return {
+        selectedModes: [],
+        invalidModeSlugs: options.modes?.split(',').map(s => s.trim()).filter(s => s) || [],
+        invalidCategorySlugs: options.category?.split(',').map(s => s.trim()).filter(s => s) || [],
+      };
+    }
     const selectedModes = new Set<string>();
     const invalidModeSlugs: string[] = [];
     const invalidCategorySlugs: string[] = [];

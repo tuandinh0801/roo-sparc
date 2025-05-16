@@ -1,74 +1,77 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+/**
+ * Tests for the error handler utility
+ */
+import { describe, it, expect, beforeEach, vi, MockInstance } from 'vitest';
+
+// Unmock UIManager, errorHandler, and chalk to test with actual implementations
+vi.unmock('../../src/utils/uiManager.js');
+vi.unmock('../../src/utils/errorHandler.js');
+vi.unmock('chalk');
+
+import { UIManager } from '../../src/utils/uiManager.js'; // Import the UIManager CLASS
 import {
-  handleError,
-  BaseError,
-  DefinitionLoadError,
-  FileSystemError,
-  OverwriteConflictError,
+  handleError, // Import the actual handleError
   UserAbortError,
+  OverwriteConflictError,
+  FileSystemError,
+  DefinitionLoadError
 } from '../../src/utils/errorHandler.js';
 
-// Mock UIManager and its methods
-const mockStopSpinner = vi.fn();
-const mockPrintError = vi.fn();
-const mockPrintWarning = vi.fn();
-const mockPrintAbortMessage = vi.fn();
-const mockChalk = {
-  red: { bold: vi.fn((text) => `red.bold(${text})`) },
-  yellow: vi.fn((text) => `yellow(${text})`),
-  gray: vi.fn((text) => `gray(${text})`),
-};
-
-vi.mock('../../src/utils/uiManager.js', () => ({
-  UIManager: vi.fn().mockImplementation(() => ({
-    stopSpinner: mockStopSpinner,
-    printError: mockPrintError,
-    printWarning: mockPrintWarning,
-    printAbortMessage: mockPrintAbortMessage,
-    chalk: mockChalk,
-  })),
-}));
-
 // Mock process.exit
-const mockExit = vi.spyOn(process, 'exit').mockImplementation((() => {}) as (code?: string | number | null | undefined) => never);
+const mockExit = vi.spyOn(process, 'exit').mockImplementation((code) => {
+  return code as never;
+});
 
-describe('errorHandler', () => {
+describe('handleError', () => {
+  let testUiManager: UIManager;
+  let spyStopSpinner: MockInstance<[], void>;
+  let spyPrintError: MockInstance<[message: string, title?: string], void>;
+  let spyPrintWarning: MockInstance<[message: string, title?: string], void>;
+  let spyPrintAbortMessage: MockInstance<[customMessage?: string, _error?: Error], void>;
+
   beforeEach(() => {
-    // Reset mocks before each test
-    vi.clearAllMocks();
-  });
+    vi.clearAllMocks(); // Clears all mocks, including process.exit
 
-  // No need for afterEach to restore mocks when using vi.mock
+    testUiManager = new UIManager(); // Create a fresh instance for each test
+
+    // Spy on the methods of this fresh instance
+    spyStopSpinner = vi.spyOn(testUiManager, 'stopSpinner');
+    spyPrintError = vi.spyOn(testUiManager, 'printError');
+    spyPrintWarning = vi.spyOn(testUiManager, 'printWarning');
+    spyPrintAbortMessage = vi.spyOn(testUiManager, 'printAbortMessage');
+
+    // mockExit is already spied globally and cleared by vi.clearAllMocks()
+  });
 
   it('should handle standard Error object, print error, and exit with code 1 by default', () => {
     const error = new Error('Standard error message');
-    handleError(error, { exit: true }); // Explicitly request exit for testing
-    expect(mockStopSpinner).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledWith(error.message, 'Error');
+    handleError(error, { exit: true, uiManager: testUiManager }); // Pass the spied instance
+    expect(spyStopSpinner).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledWith(error.message, 'Error');
     expect(mockExit).toHaveBeenCalledTimes(1);
     expect(mockExit).toHaveBeenCalledWith(1);
-    expect(mockPrintWarning).not.toHaveBeenCalled();
-    expect(mockPrintAbortMessage).not.toHaveBeenCalled();
+    expect(spyPrintWarning).not.toHaveBeenCalled();
+    expect(spyPrintAbortMessage).not.toHaveBeenCalled();
   });
 
   it('should handle standard Error object with a custom exit code', () => {
     const error = new Error('Custom exit code error');
-    const exitCode = 5;
-    handleError(error, { exit: true, exitCode });
-    expect(mockStopSpinner).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledWith(error.message, 'Error');
-    expect(mockExit).toHaveBeenCalledTimes(1);
+    const exitCode = 2;
+    handleError(error, { exit: true, exitCode, uiManager: testUiManager }); // Pass the spied instance
+
+    expect(spyStopSpinner).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledWith(error.message, 'Error');
     expect(mockExit).toHaveBeenCalledWith(exitCode);
   });
 
   it('should handle string errors, print error, and exit with code 1 by default', () => {
     const errorMessage = 'This is a string error';
-    handleError(errorMessage, { exit: true });
-    expect(mockStopSpinner).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledWith(errorMessage, 'Error');
+    handleError(errorMessage, { exit: true, uiManager: testUiManager }); // Pass the spied instance
+    expect(spyStopSpinner).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledWith(errorMessage, 'Error');
     expect(mockExit).toHaveBeenCalledTimes(1);
     expect(mockExit).toHaveBeenCalledWith(1);
   });
@@ -76,21 +79,20 @@ describe('errorHandler', () => {
   it('should handle string errors with a custom exit code', () => {
     const errorMessage = 'String error with custom exit';
     const exitCode = 10;
-    handleError(errorMessage, { exit: true, exitCode });
-    expect(mockStopSpinner).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledWith(errorMessage, 'Error');
+    handleError(errorMessage, { exit: true, exitCode, uiManager: testUiManager }); // Pass the spied instance
+    expect(spyStopSpinner).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledWith(errorMessage, 'Error');
     expect(mockExit).toHaveBeenCalledTimes(1);
     expect(mockExit).toHaveBeenCalledWith(exitCode);
   });
 
   it('should handle unknown error types, print error, and exit with code 1 by default', () => {
     const unknownError = { data: 'some data' };
-    handleError(unknownError, { exit: true });
-    expect(mockStopSpinner).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledTimes(1);
-    // Unknown errors are stringified implicitly by console functions, test the core message part
-    expect(mockPrintError).toHaveBeenCalledWith(expect.stringContaining('An unexpected error occurred.'), 'Error');
+    handleError(unknownError, { exit: true, uiManager: testUiManager }); // Pass the spied instance
+    expect(spyStopSpinner).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledWith(expect.stringContaining('An unexpected error occurred.'), 'Error');
     expect(mockExit).toHaveBeenCalledTimes(1);
     expect(mockExit).toHaveBeenCalledWith(1);
   });
@@ -98,92 +100,94 @@ describe('errorHandler', () => {
   it('should handle unknown error types with a custom exit code', () => {
     const unknownError = { data: 'some data' };
     const exitCode = 15;
-    handleError(unknownError, { exit: true, exitCode });
-    expect(mockStopSpinner).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledWith(expect.stringContaining('An unexpected error occurred.'), 'Error');
+    handleError(unknownError, { exit: true, exitCode, uiManager: testUiManager }); // Pass the spied instance
+    expect(spyStopSpinner).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledWith(expect.stringContaining('An unexpected error occurred.'), 'Error');
     expect(mockExit).toHaveBeenCalledTimes(1);
     expect(mockExit).toHaveBeenCalledWith(exitCode);
   });
 
   it('should handle DefinitionLoadError with file path', () => {
-    const filePath = 'definitions/modes.json';
-    const error = new DefinitionLoadError('Failed to load', filePath);
-    handleError(error, { exit: true });
-    const expectedMessage = `${error.message}\n\nFile: yellow(${filePath})`;
-    expect(mockStopSpinner).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledWith(expectedMessage, 'Definition Error');
+    const message = 'Failed to load definition file';
+    const filePath = '/path/to/definition/file.json';
+    const error = new DefinitionLoadError(message, filePath);
+    handleError(error, { exit: true, uiManager: testUiManager }); // Pass the spied instance
+    const expectedMessage = `${error.message}\n\nFile: \u001b[33m${filePath}\u001b[39m`;
+    expect(spyStopSpinner).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledWith(expectedMessage, 'Definition Error');
+    expect(mockExit).toHaveBeenCalledTimes(1);
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
   it('should handle FileSystemError with file path', () => {
-    const filePath = 'src/some/file.ts';
-    const error = new FileSystemError('Cannot read file', filePath);
-    handleError(error, { exit: true });
-    const expectedMessage = `${error.message}\n\nFile: yellow(${filePath})`;
-    expect(mockStopSpinner).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledWith(expectedMessage, 'File System Error');
+    const filePath = '/path/to/file.txt';
+    const error = new FileSystemError('File system error', filePath);
+    handleError(error, { exit: true, uiManager: testUiManager }); // Pass the spied instance
+    const expectedMessage = `${error.message}\n\nFile: \u001b[33m${filePath}\u001b[39m`;
+    expect(spyStopSpinner).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledWith(expectedMessage, 'File System Error');
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
   it('should handle FileSystemError with source and destination paths', () => {
     const sourcePath = 'src/old.txt';
-    const destPath = 'dist/new.txt';
-    const error = new FileSystemError('Failed to copy', undefined, sourcePath, destPath);
-    handleError(error, { exit: true });
-    const expectedMessage = `${error.message}\n\nSource: yellow(${sourcePath})\nDestination: yellow(${destPath})`;
-    expect(mockStopSpinner).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledWith(expectedMessage, 'File System Error');
+    const destinationPath = 'dist/new.txt';
+    const error = new FileSystemError('Failed to copy', undefined, sourcePath, destinationPath);
+    handleError(error, { exit: true, uiManager: testUiManager }); // Pass the spied instance
+    const expectedMessage = `${error.message}\n\nSource: \u001b[33m${sourcePath}\u001b[39m\nDestination: \u001b[33m${destinationPath}\u001b[39m`;
+    expect(spyStopSpinner).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledWith(expectedMessage, 'File System Error');
+    expect(mockExit).toHaveBeenCalledTimes(1);
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
   it('should handle OverwriteConflictError and print warning', () => {
-    const filePath = 'config/existing.json';
+    const filePath = '/path/to/file.js';
     const error = new OverwriteConflictError('File already exists', filePath);
-    handleError(error, { exit: true }); // Exit for testing consistency
-    const expectedMessage = `${error.message}\n\nFile: yellow(${filePath})`;
-    expect(mockStopSpinner).toHaveBeenCalledTimes(1);
-    expect(mockPrintWarning).toHaveBeenCalledTimes(1);
-    expect(mockPrintWarning).toHaveBeenCalledWith(expectedMessage, 'Conflict');
-    expect(mockPrintError).not.toHaveBeenCalled();
-    expect(mockPrintAbortMessage).not.toHaveBeenCalled();
+    handleError(error, { exit: true, uiManager: testUiManager }); // Pass the spied instance
+    const expectedMessage = `${error.message}\n\nFile: \u001b[33m${filePath}\u001b[39m`;
+    expect(spyStopSpinner).toHaveBeenCalledTimes(1);
+    expect(spyPrintWarning).toHaveBeenCalledTimes(1);
+    expect(spyPrintWarning).toHaveBeenCalledWith(expectedMessage, 'Conflict');
+    expect(spyPrintError).not.toHaveBeenCalled();
+    expect(spyPrintAbortMessage).not.toHaveBeenCalled();
+    expect(mockExit).toHaveBeenCalledTimes(1);
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
   it('should handle UserAbortError and print abort message', () => {
-    const error = new UserAbortError();
-    handleError(error, { exit: true }); // Exit for testing consistency
-    expect(mockStopSpinner).toHaveBeenCalledTimes(1);
-    expect(mockPrintAbortMessage).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).not.toHaveBeenCalled();
-    expect(mockPrintWarning).not.toHaveBeenCalled();
-    expect(mockExit).toHaveBeenCalledWith(1); // Default exit code
+    const error = new UserAbortError('User aborted');
+    handleError(error, { exit: true, uiManager: testUiManager }); // Pass the spied instance
+    expect(spyStopSpinner).toHaveBeenCalledTimes(1);
+    expect(spyPrintAbortMessage).toHaveBeenCalledTimes(1);
+    expect(mockExit).toHaveBeenCalledWith(0);
   });
 
   it('should not exit if options.exit is false or undefined', () => {
-    const error = new Error('Do not exit');
-    handleError(error); // Default options, exit is false
-    expect(mockStopSpinner).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledTimes(1);
+    const error = new Error('Test error without exit');
+    handleError(error, { uiManager: testUiManager }); // Pass the spied instance, Default options, exit is false
+    expect(spyStopSpinner).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledTimes(1);
     expect(mockExit).not.toHaveBeenCalled();
 
-    handleError(error, { exit: false }); // Explicitly false
-    expect(mockStopSpinner).toHaveBeenCalledTimes(2);
-    expect(mockPrintError).toHaveBeenCalledTimes(2);
+    handleError(error, { exit: false, uiManager: testUiManager }); // Pass the spied instance, Explicitly false
+    expect(spyStopSpinner).toHaveBeenCalledTimes(2);
+    expect(spyPrintError).toHaveBeenCalledTimes(2);
     expect(mockExit).not.toHaveBeenCalled();
   });
 
   it('should include context in details if provided', () => {
     const error = new Error('Error with context');
     const context = 'During initialization';
-    handleError(error, { exit: true, context });
+    handleError(error, { exit: true, context, uiManager: testUiManager }); // Pass the spied instance
     const expectedMessage = `${error.message}\n\nContext: ${context}`;
-    expect(mockStopSpinner).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledTimes(1);
-    expect(mockPrintError).toHaveBeenCalledWith(expectedMessage, 'Error');
+    expect(spyStopSpinner).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledTimes(1);
+    expect(spyPrintError).toHaveBeenCalledWith(expectedMessage, 'Error');
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 

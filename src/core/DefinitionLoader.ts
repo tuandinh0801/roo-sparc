@@ -1,18 +1,28 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { z } from 'zod';
-import { ModeDefinition, CategoryDefinition, Rule, SourceType } from '../types/domain.js'; // Added SourceType
+import { ModeDefinition, CategoryDefinition, Rule, SourceType as CommandSourceType } from '../types/domain.js';
 import { FileManager } from './FileManager.js';
 import { uiManager } from '../utils/uiManager.js'; // To instantiate FileManager
 
-// New types for source tagging
-export type DefinitionSourceType = 'system' | 'custom' | 'custom-override';
+/**
+ * Defines the source type of a definition for display purposes,
+ * indicating whether it's a system default, a user customization,
+ * or a user customization that overrides a system default.
+ */
+export type DefinitionSourceType = 'system' | 'custom' | 'custom (overrides system)';
 
-export interface ModeDefinitionDisplay extends ModeDefinition {
+/**
+ * Extends ModeDefinition with a sourceType property for display purposes.
+ */
+export interface ModeDefinitionWithSource extends ModeDefinition {
   sourceType: DefinitionSourceType;
 }
 
-export interface CategoryDefinitionDisplay extends CategoryDefinition {
+/**
+ * Extends CategoryDefinition with a sourceType property for display purposes.
+ */
+export interface CategoryDefinitionWithSource extends CategoryDefinition {
   sourceType: DefinitionSourceType;
 }
 
@@ -171,24 +181,33 @@ export class DefinitionLoader {
    */
   private async loadUserDefinitions(): Promise<UserDefinitionsFile | null> {
     try {
-      await this.fileManager.ensureUserConfigDirectories(); // Ensure directories exist
-      const userConfigPath = this.fileManager.getUserConfigPath();
-      const userDefinitionsPath = path.join(userConfigPath, 'user-definitions.json');
+      // Delegate reading and initial parsing/validation to FileManager's method
+      const userDefsFromFile = await this.fileManager.readUserDefinitions();
 
-      if (!await fs.pathExists(userDefinitionsPath)) {
-        console.warn(`User definitions file not found at ${userDefinitionsPath}. Proceeding without user definitions.`);
+      if (!userDefsFromFile) {
+        // FileManager.readUserDefinitions already logs if file not found or parse error,
+        // and returns null in those cases.
+        // console.warn is handled by fileManager.readUserDefinitions
         return null;
       }
 
-      const content = await fs.readJson(userDefinitionsPath);
-      const validationResult = UserDefinitionsSchema.safeParse(content);
+      // Further Zod validation specific to DefinitionLoader's expectations if needed,
+      // or assume FileManager.readUserDefinitions returns data adhering to UserDefinitionsFile type.
+      // For now, assume FileManager.readUserDefinitions returns the correct structure
+      // or null, and handles its own console warnings for file-not-found/parse errors.
+      const validationResult = UserDefinitionsSchema.safeParse(userDefsFromFile);
 
       if (!validationResult.success) {
-        console.warn(`Invalid user-definitions.json at ${userDefinitionsPath}: ${validationResult.error.errors.map(e => `${e.path.join('.')} - ${e.message}`).join(', ')}. Proceeding without user definitions.`);
+        // This case might occur if FileManager.readUserDefinitions returns something
+        // that passed its basic JSON parse but fails this stricter Zod schema.
+        const userConfigPath = this.fileManager.getUserConfigPath();
+        const userDefinitionsPath = path.join(userConfigPath, 'user-definitions.json');
+        console.warn(`Invalid structure in user-definitions.json at ${userDefinitionsPath} after initial read: ${validationResult.error.errors.map(e => `${e.path.join('.')} - ${e.message}`).join(', ')}. Proceeding without user definitions.`);
         return null;
       }
-      // Add source: 'user' to all loaded user definitions
+
       const resultData = validationResult.data;
+      // Ensure 'source: user' is set, as FileManager.readUserDefinitions might not set this.
       if (resultData.customModes) {
         resultData.customModes = resultData.customModes.map(m => ({ ...m, source: 'user' as const }));
       }
@@ -198,7 +217,9 @@ export class DefinitionLoader {
       return resultData;
 
     } catch (error) {
-      console.warn(`Error loading user definitions: ${error instanceof Error ? error.message : String(error)}. Proceeding without user definitions.`);
+      // Catch errors from this.fileManager.readUserDefinitions() if it throws unexpectedly
+      // (though it's designed to return null for common read/parse issues).
+      console.warn(`Unexpected error calling this.fileManager.readUserDefinitions(): ${error instanceof Error ? error.message : String(error)}. Proceeding without user definitions.`);
       return null;
     }
   }
@@ -361,12 +382,12 @@ export class DefinitionLoader {
   /**
    * Retrieves merged mode definitions, with each item tagged by its source type.
    * Custom modes override system modes.
-   * @returns {Promise<ModeDefinitionDisplay[]>}
+   * @returns {Promise<ModeDefinitionWithSource[]>} A promise that resolves to an array of mode definitions, each with a `sourceType`.
    */
-  public async getMergedModes(): Promise<ModeDefinitionDisplay[]> {
+  public async getMergedModes(): Promise<ModeDefinitionWithSource[]> {
     const systemModes = await this.getSystemModes();
     const customModes = await this.getCustomModes();
-    const mergedMap = new Map<string, ModeDefinitionDisplay>();
+    const mergedMap = new Map<string, ModeDefinitionWithSource>();
 
     systemModes.forEach(mode => {
       mergedMap.set(mode.slug, { ...mode, sourceType: 'system' });
@@ -374,29 +395,24 @@ export class DefinitionLoader {
 
     customModes.forEach(mode => {
       if (mergedMap.has(mode.slug)) {
-        // Override system mode
-        mergedMap.set(mode.slug, { ...mode, sourceType: 'custom-override' });
+        // Custom mode overrides a system mode
+        mergedMap.set(mode.slug, { ...mode, sourceType: 'custom (overrides system)' });
       } else {
-        // New custom mode
+        // New custom mode (does not override any system mode)
         mergedMap.set(mode.slug, { ...mode, sourceType: 'custom' });
       }
     });
 
     const allMergedModes = Array.from(mergedMap.values());
-    // Perform validations that might be needed on the fully merged list
-    // For now, category validation and rule path validation are done in loadDefinitions
-    // If these methods are called independently, similar validations might be needed
-    // or ensure loadDefinitions is called first if these depend on its full setup.
-
-    // For now, we assume consumers of getMergedModes will handle further validation
-    // or that these methods are used in contexts where full validation (like rule paths)
-    // has already been ensured or is handled separately.
+    // Further validation (like rule paths and category existence) is typically handled
+    // by the `loadDefinitions` method or should be ensured by the caller if using
+    // `getMergedModes` independently.
     return allMergedModes;
   }
 
   /**
    * Retrieves only system category definitions.
-   * @returns {Promise<CategoryDefinition[]>}
+   * @returns {Promise<CategoryDefinition[]>} A promise that resolves to an array of system category definitions.
    */
   public async getSystemCategories(): Promise<CategoryDefinition[]> {
     try {
@@ -409,7 +425,7 @@ export class DefinitionLoader {
 
   /**
    * Retrieves only custom category definitions.
-   * @returns {Promise<CategoryDefinition[]>}
+   * @returns {Promise<CategoryDefinition[]>} A promise that resolves to an array of custom category definitions.
    */
   public async getCustomCategories(): Promise<CategoryDefinition[]> {
     try {
@@ -424,12 +440,12 @@ export class DefinitionLoader {
   /**
    * Retrieves merged category definitions, with each item tagged by its source type.
    * Custom categories override system categories.
-   * @returns {Promise<CategoryDefinitionDisplay[]>}
+   * @returns {Promise<CategoryDefinitionWithSource[]>} A promise that resolves to an array of category definitions, each with a `sourceType`.
    */
-  public async getMergedCategories(): Promise<CategoryDefinitionDisplay[]> {
+  public async getMergedCategories(): Promise<CategoryDefinitionWithSource[]> {
     const systemCategories = await this.getSystemCategories();
     const customCategories = await this.getCustomCategories();
-    const mergedMap = new Map<string, CategoryDefinitionDisplay>();
+    const mergedMap = new Map<string, CategoryDefinitionWithSource>();
 
     systemCategories.forEach(cat => {
       mergedMap.set(cat.slug, { ...cat, sourceType: 'system' });
@@ -437,47 +453,14 @@ export class DefinitionLoader {
 
     customCategories.forEach(cat => {
       if (mergedMap.has(cat.slug)) {
-        mergedMap.set(cat.slug, { ...cat, sourceType: 'custom-override' });
+        // Custom category overrides a system category
+        mergedMap.set(cat.slug, { ...cat, sourceType: 'custom (overrides system)' });
       } else {
+        // New custom category
         mergedMap.set(cat.slug, { ...cat, sourceType: 'custom' });
       }
     });
     return Array.from(mergedMap.values());
-  }
-
-  // Method to get definitions based on source, as expected by manageListModes command
-  public async getModeDefinitions(source: SourceType): Promise<ModeDefinition[] | ModeDefinitionDisplay[]> {
-    // This is a simplified version for the command to call.
-    // The actual logic for distinguishing system, custom, and merged with overrides
-    // is within getSystemModes, getCustomModes, and getMergedModes.
-    switch (source) {
-      case 'custom':
-        return this.getCustomModes();
-      case 'system':
-        return this.getSystemModes();
-      case 'all':
-        return this.getMergedModes(); // Returns ModeDefinitionDisplay[]
-      default: {
-        // Ensure exhaustive check with 'never' if SourceType is strict
-        const _exhaustiveCheck: never = source;
-        return Promise.reject(new Error(`Unhandled source type: ${_exhaustiveCheck}`));
-      }
-    }
-  }
-
-  public async getCategoryDefinitions(source: SourceType): Promise<CategoryDefinition[] | CategoryDefinitionDisplay[]> {
-    switch (source) {
-      case 'custom':
-        return this.getCustomCategories();
-      case 'system':
-        return this.getSystemCategories();
-      case 'all':
-        return this.getMergedCategories(); // Returns CategoryDefinitionDisplay[]
-      default: {
-        const _exhaustiveCheck: never = source;
-        return Promise.reject(new Error(`Unhandled source type: ${_exhaustiveCheck}`));
-      }
-    }
   }
 }
 
