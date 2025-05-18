@@ -8,29 +8,47 @@ import { v4 as uuidv4 } from 'uuid';
 /**
  * Command to add a new custom mode.
  */
+import { CommandOptions } from '../base/BaseCommand.js'; // Import CommandOptions
+
 export class AddModeCommand extends BaseCommand {
+  constructor(options: CommandOptions) {
+    super(options);
+  }
   /**
    * Executes the add mode command.
    */
   async execute(): Promise<void> {
+    console.error('[AddModeCommand execute] Start');
     try {
       this.ui.printInfo('\n=== Add New Mode ===');
+      console.error('[AddModeCommand execute] After printInfo');
 
       const slug = await this.promptForSlug();
+      console.error(`[AddModeCommand execute] Slug prompted: ${slug}`);
       const name = await this.promptForName();
+      console.error(`[AddModeCommand execute] Name prompted: ${name}`);
       const description = await this.promptForDescription();
+      console.error(`[AddModeCommand execute] Description prompted: ${description}`);
       const customInstructions = await this.promptForCustomInstructions();
+      console.error(`[AddModeCommand execute] CustomInstructions prompted: ${customInstructions ? customInstructions.substring(0, 50) + '...' : 'undefined'}`);
       const groups = await this.promptForGroups();
+      console.error(`[AddModeCommand execute] Groups prompted: ${groups.join(', ')}`);
       const categorySlugs = await this.promptForCategories();
+      console.error(`[AddModeCommand execute] CategorySlugs prompted: ${categorySlugs.join(', ')}`);
 
       // Construct user rules directory path
       const userConfigPath = this.fileManager.getUserConfigPath();
+      console.error(`[AddModeCommand execute] userConfigPath: ${userConfigPath}`);
       const userRulesDir = path.join(userConfigPath, 'rules');
+      console.error(`[AddModeCommand execute] userRulesDir: ${userRulesDir}`);
       const modeRulesDir = path.join(userRulesDir, slug);
+      console.error(`[AddModeCommand execute] modeRulesDir: ${modeRulesDir}`);
 
       await fs.ensureDir(modeRulesDir); // Use fs.ensureDir directly
+      console.error(`[AddModeCommand execute] Ensured directory: ${modeRulesDir}`);
 
       const rules = await this.promptForRules(modeRulesDir, slug);
+      console.error(`[AddModeCommand execute] Rules prompted: ${rules.length} rules`);
 
       const newMode: ModeDefinition = {
         slug,
@@ -42,23 +60,31 @@ export class AddModeCommand extends BaseCommand {
         associatedRuleFiles: rules,
         source: 'user'
       };
+      console.error('[AddModeCommand execute] newMode object created:', newMode);
 
       await this.saveMode(newMode);
+      console.error('[AddModeCommand execute] After saveMode call');
       this.ui.printSuccess(`\n✅ Mode "${name}" created successfully.`);
+      console.error('[AddModeCommand execute] Success message printed');
     } catch (error) {
+      console.error('[AddModeCommand execute] Error caught:', error);
       this.handleError(error as Error, 'Failed to add mode');
     }
+    console.error('[AddModeCommand execute] End');
   }
 
   setupCommand(program: Command): void {
     program
-      .command('add:mode')
+      .command('mode')
       .description('Add a new custom mode')
       .action(() => this.execute());
   }
 
   private async promptForSlug(): Promise<string> {
+    console.error('[AddModeCommand promptForSlug] Start');
+    console.error('[AddModeCommand promptForSlug] Calling loadDefinitions...');
     const existingDefs = await this.definitionLoader.loadDefinitions();
+    console.error('[AddModeCommand promptForSlug] loadDefinitions call completed.');
     const existingModeSlugs = new Set(existingDefs.modes.map((m) => m.slug));
     return this.ui.promptInput({
       message: 'Enter a unique slug for the new mode (e.g., my-custom-mode):',
@@ -182,10 +208,13 @@ export class AddModeCommand extends BaseCommand {
   }
 
   private async saveMode(mode: ModeDefinition): Promise<void> {
+    console.error('[AddModeCommand saveMode] Start for mode:', mode.slug);
     try {
+      console.error('[AddModeCommand saveMode] Attempting to load existing user definitions...');
       let userDefs: UserDefinitions = { customModes: [], customCategories: [] };
       try {
         const existingUserDefs = await this.fileManager.readUserDefinitions();
+        console.error('[AddModeCommand saveMode] Read existingUserDefs:', existingUserDefs);
         if (existingUserDefs) {
           userDefs = {
             customModes: existingUserDefs.customModes || [],
@@ -193,12 +222,27 @@ export class AddModeCommand extends BaseCommand {
           };
         }
       } catch (error) {
+        console.error('[AddModeCommand saveMode] Error reading existing user definitions:', error);
         this.ui.printWarning(`Could not read existing user definitions: ${(error as Error).message}. Starting with empty definitions.`);
       }
+      console.error('[AddModeCommand saveMode] User definitions after read (or default):', {
+        customModesCount: userDefs.customModes?.length,
+        customCategoriesCount: userDefs.customCategories?.length
+      });
+
       userDefs.customModes = [...(userDefs.customModes || []), mode];
+      console.error('[AddModeCommand saveMode] User definitions after adding new mode:', {
+        customModesCount: userDefs.customModes?.length,
+        customCategoriesCount: userDefs.customCategories?.length
+      });
+
+      console.error('[AddModeCommand saveMode] Attempting to write user definitions...');
       await this.fileManager.writeUserDefinitions(userDefs);
+      console.error('[AddModeCommand saveMode] User definitions written.');
     } catch (error) {
+      console.error('[AddModeCommand saveMode] Error during saveMode:', error);
       throw new Error(`Failed to save mode: ${(error as Error).message}`);
     }
+    console.error('[AddModeCommand saveMode] End');
   }
 }

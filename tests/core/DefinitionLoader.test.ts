@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
-import fs from 'fs-extra';
+import fsExtra from 'fs-extra'; // Renamed to avoid conflict with node:fs
+import fs from 'node:fs'; // Import the actual node:fs for typing, but it will be mocked
 import path from 'path';
 
 // Unmock DefinitionLoader for this specific test file to use the actual implementation
 vi.unmock('../../src/core/DefinitionLoader.js');
 
 import { DefinitionLoader } from '../../src/core/DefinitionLoader.js';
-import type { ModeDefinition, CategoryDefinition, UserDefinitions, Rule } from '../../src/types/domain.js';
+import type { ModeDefinition, CategoryDefinition, UserDefinitions, Rule, ModeDefinitionWithSource, CategoryDefinitionWithSource, DefinitionSource } from '../../src/types/domain.js';
 import { FileManager } from '../../src/core/FileManager.js';
 import { UIManager } from '../../src/utils/uiManager.js'; // For typing FileManager's uiManager property
 
@@ -23,30 +24,40 @@ const createTestRule = (overrides: Partial<Rule> = {}): Rule => ({
   ...overrides
 });
 
-const createTestMode = (overrides: Partial<ModeDefinition> = {}): ModeDefinition => ({
+const createTestMode = (overrides: Partial<ModeDefinitionWithSource> = {}): ModeDefinitionWithSource => ({
   slug: 'test-mode',
   name: 'Test Mode',
   description: 'A test mode',
   categorySlugs: ['test-category'],
   associatedRuleFiles: [],
-  source: 'system',
+  source: 'system', // 'source' is still relevant for initial parsing/merging logic if used by Zod schema
+  sourceType: 'system', // Default sourceType
   ...overrides
 });
 
-const createTestCategory = (overrides: Partial<CategoryDefinition> = {}): CategoryDefinition => ({
+const createTestCategory = (overrides: Partial<CategoryDefinitionWithSource> = {}): CategoryDefinitionWithSource => ({
   slug: 'test-category',
   name: 'Test Category',
   description: 'A test category',
-  source: 'system',
+  source: 'system', // 'source' is still relevant
+  sourceType: 'system', // Default sourceType
   ...overrides
 });
 
 // Mock fs-extra. The actual mock functions are created below.
 vi.mock('fs-extra');
+vi.mock('node:fs', () => ({
+  default: { // Provide a default export for the mock
+    writeSync: vi.fn(), // Mock writeSync
+    // Add other 'node:fs' functions if DefinitionLoader starts using them directly
+  },
+  __esModule: true, // Important for ES Modules
+}));
 
 // Declare spies for FileManager methods with specific types.
 // These will be initialized in beforeEach.
 let mockFileManagerInstance: Partial<FileManager> & { uiManager: Partial<UIManager> }; // For the instance passed to DefinitionLoader
+let mockUiManagerInstance: UIManager;
 let ensureUserConfigDirectoriesMock: Mock<[], Promise<{ configPath: string; rulesPath: string }>>;
 let getUserConfigPathMock: Mock<[], string>;
 let writeRoomodesFileMock: Mock<[string, ModeDefinition[], boolean], Promise<void>>;
@@ -61,7 +72,7 @@ let writeUserDefinitionsMock: Mock<[UserDefinitions], Promise<void>>;
 
 
 // --- Test Data Setup using the new factory ---
-const testSystemModes: ModeDefinition[] = [
+const testSystemModes: ModeDefinitionWithSource[] = [
   createTestMode({
     slug: 'sys-mode-1',
     name: 'System Mode 1',
@@ -70,22 +81,24 @@ const testSystemModes: ModeDefinition[] = [
       createTestRule({ id: 'sys-rule-1', sourcePath: 'generic/sys-rule-1.md', isGeneric: true }),
       createTestRule({ id: 'sys-rule-2', sourcePath: 'sys-mode-1/specific-rule.md', isGeneric: false }),
     ],
-    source: 'system'
+    source: 'system',
+    sourceType: 'system'
   }),
   createTestMode({
     slug: 'sys-mode-2',
     name: 'System Mode 2',
     categorySlugs: ['sys-cat-2'],
-    source: 'system'
+    source: 'system',
+    sourceType: 'system'
   })
 ];
 
-const testSystemCategories: CategoryDefinition[] = [
-  createTestCategory({ slug: 'sys-cat-1', name: 'System Category 1', source: 'system' }),
-  createTestCategory({ slug: 'sys-cat-2', name: 'System Category 2', source: 'system' }),
+const testSystemCategories: CategoryDefinitionWithSource[] = [
+  createTestCategory({ slug: 'sys-cat-1', name: 'System Category 1', source: 'system', sourceType: 'system' }),
+  createTestCategory({ slug: 'sys-cat-2', name: 'System Category 2', source: 'system', sourceType: 'system' }),
 ];
 
-const testUserModes: ModeDefinition[] = [
+const testUserModes: ModeDefinitionWithSource[] = [
   createTestMode({
     slug: 'user-mode-1',
     name: 'User Mode 1',
@@ -93,22 +106,25 @@ const testUserModes: ModeDefinition[] = [
     associatedRuleFiles: [
       createTestRule({ id: 'user-rule-1', sourcePath: 'user-mode-1/user-rule.md', isGeneric: false })
     ],
-    source: 'user'
+    source: 'user',
+    sourceType: 'custom'
   }),
   createTestMode({ // To test override
     slug: 'sys-mode-1',
     name: 'User Overridden System Mode 1',
     categorySlugs: ['sys-cat-1', 'user-cat-1'],
-    source: 'user'
+    source: 'user',
+    sourceType: 'custom' // Initial sourceType is 'custom', merging logic updates it
   })
 ];
 
-const testUserCategories: CategoryDefinition[] = [
-  createTestCategory({ slug: 'user-cat-1', name: 'User Category 1', source: 'user' }),
+const testUserCategories: CategoryDefinitionWithSource[] = [
+  createTestCategory({ slug: 'user-cat-1', name: 'User Category 1', source: 'user', sourceType: 'custom' }),
   createTestCategory({ // To test override
     slug: 'sys-cat-1',
     name: 'User Overridden System Category 1',
-    source: 'user'
+    source: 'user',
+    sourceType: 'custom' // Initial sourceType is 'custom'
   })
 ];
 
@@ -127,12 +143,14 @@ describe('DefinitionLoader', () => {
   let loader: DefinitionLoader;
 
   // Get typed mock functions from fs-extra
-  const fsPathExistsMock = vi.mocked(fs.pathExists);
-  const fsReadJsonMock = vi.mocked(fs.readJson);
-
+  const fsExtraPathExistsMock = vi.mocked(fsExtra.pathExists);
+  const fsExtraReadJsonMock = vi.mocked(fsExtra.readJson);
+  // We don't need a typed mock for fs.writeSync from 'node:fs' here
+  // as it's mocked globally above and we're not checking its calls in this specific test suite,
+  // but if we were, we'd get it from the vi.mock factory.
 
   beforeEach(() => {
-    vi.resetAllMocks(); // Resets all mocks (including fs-extra)
+    vi.resetAllMocks(); // Resets all mocks (including fs-extra and node:fs)
     resetErrorHandlerMocks();
 
     // Reset test data
@@ -188,7 +206,7 @@ describe('DefinitionLoader', () => {
       copyRuleFilesForMode: copyRuleFilesForModeMock,
       readUserDefinitions: readUserDefinitionsMock,
       writeUserDefinitions: writeUserDefinitionsMock,
-      uiManager: {
+      uiManager: { // This is for the FileManager's UIManager, not the one for DefinitionLoader directly
         startSpinner: vi.fn(),
         stopSpinner: vi.fn(),
         succeedSpinner: vi.fn(),
@@ -218,10 +236,50 @@ describe('DefinitionLoader', () => {
       } as unknown as UIManager,
     };
 
-    loader = new DefinitionLoader(mockFileManagerInstance as unknown as FileManager, MOCK_SYSTEM_DEFINITIONS_PATH);
+    // Setup mock UIManager for DefinitionLoader
+    mockUiManagerInstance = {
+      startSpinner: vi.fn(),
+      stopSpinner: vi.fn(),
+      succeedSpinner: vi.fn(),
+      failSpinner: vi.fn(),
+      updateSpinnerText: vi.fn(),
+      infoSpinner: vi.fn(),
+      warnSpinner: vi.fn(),
+      printSuccess: vi.fn(),
+      printError: vi.fn(),
+      printWarning: vi.fn(),
+      printInfo: vi.fn(),
+      printAbortMessage: vi.fn(),
+      promptInput: vi.fn(),
+      promptList: vi.fn(),
+      promptCheckbox: vi.fn(),
+      promptConfirm: vi.fn(),
+      promptEditor: vi.fn(),
+      displayTable: vi.fn(),
+      showMessage: vi.fn(),
+      chalk: {
+        green: (str: string) => str,
+        red: (str: string) => str,
+        yellow: (str: string) => str,
+        blue: (str: string) => str,
+        cyan: (str: string) => str,
+      } as any, // Use 'any' for chalk to simplify mock structure if full type is complex
+      isInteractive: true,
+      setInteractive: vi.fn(),
+      getChalk: vi.fn().mockReturnValue({
+        green: (str: string) => str,
+        red: (str: string) => str,
+        yellow: (str: string) => str,
+        blue: (str: string) => str,
+        cyan: (str: string) => str,
+      }),
+    } as unknown as UIManager;
+
+
+    loader = new DefinitionLoader(mockFileManagerInstance as unknown as FileManager, mockUiManagerInstance, MOCK_SYSTEM_DEFINITIONS_PATH);
 
     // Configure fs-extra mocks (these are globally mocked but we control behavior here)
-    fsPathExistsMock.mockImplementation(async(p: fs.PathLike) => {
+    fsExtraPathExistsMock.mockImplementation(async(p: fsExtra.PathLike) => { // Use fsExtra type
       const pStr = String(p);
       if (pStr === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return true;}
       if (pStr === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json')) {return true;}
@@ -230,20 +288,20 @@ describe('DefinitionLoader', () => {
       return false;
     });
 
-    fsReadJsonMock.mockImplementation(async(p: any) => {
+    fsExtraReadJsonMock.mockImplementation(async(p: any) => { // Use fsExtra type
       const pStr = String(p);
       if (pStr === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return JSON.parse(JSON.stringify(testSystemModes));}
       if (pStr === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json')) {return JSON.parse(JSON.stringify(testSystemCategories));}
       if (pStr === path.join(MOCK_USER_CONFIG_PATH, 'user-definitions.json')) {return JSON.parse(JSON.stringify(testUserDefinitions));}
-      throw new Error(`fs.readJson mock: Unhandled path ${pStr}`);
+      throw new Error(`fsExtra.readJson mock: Unhandled path ${pStr}`);
     });
   });
 
 
   describe('loadDefinitions', () => {
     it('AC1: should load valid system mode and category definitions successfully', async() => {
-      // Override fsPathExists for this specific test to simulate no user definitions
-      fsPathExistsMock.mockImplementation(async(p: fs.PathLike) => {
+      // Override fsExtraPathExists for this specific test to simulate no user definitions
+      fsExtraPathExistsMock.mockImplementation(async(p: fsExtra.PathLike) => { // Use fsExtra type
         const pStr = String(p);
         if (pStr === path.join(MOCK_USER_CONFIG_PATH, 'user-definitions.json')) {return false;}
         if (pStr === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return true;}
@@ -253,10 +311,19 @@ describe('DefinitionLoader', () => {
 
       const { modes, categories } = await loader.loadDefinitions();
 
-      expect(modes).toEqual(expect.arrayContaining(testSystemModes.map(m => expect.objectContaining(m))));
-      expect(categories).toEqual(expect.arrayContaining(testSystemCategories.map(c => expect.objectContaining(c))));
-      expect(fsReadJsonMock).toHaveBeenCalledWith(path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json'));
-      expect(fsReadJsonMock).toHaveBeenCalledWith(path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json'));
+      // Verify that system modes have sourceType 'system'
+      expect(modes).toEqual(
+        expect.arrayContaining(
+          testSystemModes.map(m => expect.objectContaining({ ...m, sourceType: 'system' as DefinitionSource }))
+        )
+      );
+      expect(categories).toEqual(
+        expect.arrayContaining(
+          testSystemCategories.map(c => expect.objectContaining({ ...c, sourceType: 'system' as DefinitionSource }))
+        )
+      );
+      expect(fsExtraReadJsonMock).toHaveBeenCalledWith(path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json'));
+      expect(fsExtraReadJsonMock).toHaveBeenCalledWith(path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json'));
       expect(readUserDefinitionsMock).toHaveBeenCalled(); // Ensure FileManager's method was called
     });
 
@@ -269,41 +336,67 @@ describe('DefinitionLoader', () => {
       const overriddenMode = modes.find(m => m.slug === 'sys-mode-1');
       expect(overriddenMode).toBeDefined();
       expect(overriddenMode?.name).toBe('User Overridden System Mode 1');
-      expect(overriddenMode?.source).toBe('user');
+      // expect(overriddenMode?.source).toBe('user'); // 'source' is for initial load, 'sourceType' for merged result
+      expect(overriddenMode?.sourceType).toBe('custom (overrides system)');
 
       const userOnlyMode = modes.find(m => m.slug === 'user-mode-1');
       expect(userOnlyMode).toBeDefined();
-      expect(userOnlyMode?.source).toBe('user');
+      // expect(userOnlyMode?.source).toBe('user');
+      expect(userOnlyMode?.sourceType).toBe('custom');
 
       const systemOnlyMode = modes.find(m => m.slug === 'sys-mode-2');
       expect(systemOnlyMode).toBeDefined();
-      expect(systemOnlyMode?.source).toBe('system');
+      // expect(systemOnlyMode?.source).toBe('system');
+      expect(systemOnlyMode?.sourceType).toBe('system');
 
       const overriddenCategory = categories.find(c => c.slug === 'sys-cat-1');
       expect(overriddenCategory).toBeDefined();
       expect(overriddenCategory?.name).toBe('User Overridden System Category 1');
-      expect(overriddenCategory?.source).toBe('user');
+      // expect(overriddenCategory?.source).toBe('user');
+      expect(overriddenCategory?.sourceType).toBe('custom (overrides system)');
 
       expect(readUserDefinitionsMock).toHaveBeenCalled();
     });
 
     it('User Definitions > AC3: should handle missing user-definitions.json gracefully (file does not exist)', async() => {
       readUserDefinitionsMock.mockResolvedValue(null); // Simulate file not found or empty
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      // const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {}); // Replaced by uiManager spy
 
       const { modes, categories } = await loader.loadDefinitions();
 
       expect(modes.length).toBe(testSystemModes.length);
       expect(categories.length).toBe(testSystemCategories.length);
-      // Check if FileManager's readUserDefinitions was called, its internal logging is not directly tested here.
+      // Check if FileManager's readUserDefinitions was called
       expect(readUserDefinitionsMock).toHaveBeenCalled();
-      // console.warn might not be called directly by DefinitionLoader if FileManager handles it internally
-      // expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('User definitions file not found'));
+      // No warning is expected from DefinitionLoader directly if FileManager returns null (no file)
+      // FileManager itself would log via its own uiManager if it failed to read/parse.
+      // DefinitionLoader's loadUserDefinitions logs a warning if its *own* schema validation fails *after* a successful read,
+      // or if fileManager.readUserDefinitions() itself throws an *unexpected* error.
 
-      consoleWarnSpy.mockRestore();
+      // consoleWarnSpy.mockRestore(); // No longer needed
     });
 
-    it('AC3: should handle invalid user-definitions.json gracefully (invalid JSON content)', async() => {
+    it('AC3: should handle invalid user-definitions.json gracefully (invalid JSON structure from fileManager.readUserDefinitions)', async() => {
+      // Simulate FileManager.readUserDefinitions returns a structure that fails DefinitionLoader's *own* UserDefinitionsSchema.safeParse.
+      const invalidUserDefsData = { customModes: [{ slug: 'bad-mode' }] }; // Missing required fields like 'name'
+      readUserDefinitionsMock.mockResolvedValue(invalidUserDefsData as any); // Cast as any to bypass strict UserDefinitions type for test
+
+      const uiManagerPrintWarningSpy = vi.spyOn(mockUiManagerInstance, 'printWarning');
+
+      const { modes, categories } = await loader.loadDefinitions();
+
+      expect(modes.length).toBe(testSystemModes.length); // Should fall back to system definitions
+      expect(categories.length).toBe(testSystemCategories.length);
+      expect(readUserDefinitionsMock).toHaveBeenCalled();
+      expect(uiManagerPrintWarningSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Invalid structure in user-definitions.json at ${path.join(MOCK_USER_CONFIG_PATH, 'user-definitions.json')} after initial read:`)
+      );
+      expect(uiManagerPrintWarningSpy).toHaveBeenCalledWith(expect.stringContaining('customModes.0.name - Required'));
+
+      uiManagerPrintWarningSpy.mockRestore();
+    });
+
+    it('AC3: should handle unexpected error from fileManager.readUserDefinitions gracefully', async() => {
       // Simulate FileManager.readUserDefinitions encountering an internal parse error and returning null
       // For this test, we want to check the warning logged by DefinitionLoader's loadUserDefinitions
       // when it receives a null (or unparseable) from fileManager.readUserDefinitions AFTER an attempt.
@@ -315,7 +408,7 @@ describe('DefinitionLoader', () => {
       const unexpectedFileManagerError = new Error('Simulated unexpected error from FileManager.readUserDefinitions');
       readUserDefinitionsMock.mockRejectedValue(unexpectedFileManagerError);
 
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const uiManagerPrintWarningSpy = vi.spyOn(mockUiManagerInstance, 'printWarning');
 
       const { modes, categories } = await loader.loadDefinitions();
 
@@ -323,16 +416,16 @@ describe('DefinitionLoader', () => {
       expect(categories.length).toBe(testSystemCategories.length);
       expect(readUserDefinitionsMock).toHaveBeenCalled();
 
-      // Expect the warning from DefinitionLoader's catch block for loadUserDefinitions
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
+      // Expect the warning from DefinitionLoader's catch block for loadUserDefinitions via uiManager
+      expect(uiManagerPrintWarningSpy).toHaveBeenCalledWith(
         expect.stringContaining(`Unexpected error calling this.fileManager.readUserDefinitions(): ${unexpectedFileManagerError.message}`)
       );
 
-      consoleWarnSpy.mockRestore();
+      uiManagerPrintWarningSpy.mockRestore();
     });
 
     it('AC2: should throw DefinitionLoadError if system modes.json is missing', async() => {
-      fsPathExistsMock.mockImplementation(async(p: fs.PathLike) => String(p) !== path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json'));
+      fsExtraPathExistsMock.mockImplementation(async(p: fsExtra.PathLike) => String(p) !== path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')); // Use fsExtra type
 
       await expect(loader.loadDefinitions()).rejects.toThrowError(
         `System modes definition file not found at ${path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')}`
@@ -340,12 +433,12 @@ describe('DefinitionLoader', () => {
     });
 
     it('AC2: should throw DefinitionLoadError if system modes.json is invalid', async() => {
-      fsPathExistsMock.mockImplementation(async() => true); // All files exist
-      fsReadJsonMock.mockImplementation(async(p: any) => {
+      fsExtraPathExistsMock.mockImplementation(async() => true); // All files exist
+      fsExtraReadJsonMock.mockImplementation(async(p: any) => {
         if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return [{ slug: 'invalid-mode' }];} // Invalid: missing name, etc.
         if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json')) {return testSystemCategories;}
         if (p === path.join(MOCK_USER_CONFIG_PATH, 'user-definitions.json')) {return testUserDefinitions;}
-        throw new Error(`fs.readJson mock: Unhandled path ${p}`);
+        throw new Error(`fsExtra.readJson mock: Unhandled path ${p}`);
       });
 
       await expect(loader.loadDefinitions()).rejects.toThrowError(/^Failed to load definitions: Invalid system modes\.json: .*name - Required/);
@@ -355,13 +448,13 @@ describe('DefinitionLoader', () => {
       const modesWithInvalidCat = [
         createTestMode({ slug: 'mode-bad-cat', categorySlugs: ['non-existent-cat'] })
       ];
-      fsReadJsonMock.mockImplementation(async(p: any) => {
+      fsExtraReadJsonMock.mockImplementation(async(p: any) => {
         if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return modesWithInvalidCat;}
         if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json')) {return testSystemCategories;}
         if (p === path.join(MOCK_USER_CONFIG_PATH, 'user-definitions.json')) {return { customModes: [], customCategories: [] };}
-        throw new Error(`fs.readJson mock: Unhandled path ${p}`);
+        throw new Error(`fsExtra.readJson mock: Unhandled path ${p}`);
       });
-      fsPathExistsMock.mockImplementation(async() => true);
+      fsExtraPathExistsMock.mockImplementation(async() => true);
       readUserDefinitionsMock.mockResolvedValue({ customModes: [], customCategories: [] });
 
 
@@ -376,16 +469,16 @@ describe('DefinitionLoader', () => {
         categorySlugs: ['sys-cat-1'], // Explicitly use a valid system category
         associatedRuleFiles: [createTestRule({ id: 'rule-x', sourcePath: 'generic/non-existent-rule.md' })]
       });
-      fsReadJsonMock.mockImplementation(async(p: any) => {
+      fsExtraReadJsonMock.mockImplementation(async(p: any) => {
         if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return [modeWithBadRule];}
         // Ensure testSystemCategories (sys-cat-1, sys-cat-2) are returned
         if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json')) {return testSystemCategories;}
-        throw new Error(`fs.readJson mock: Unhandled path ${p} in AC4`);
+        throw new Error(`fsExtra.readJson mock: Unhandled path ${p} in AC4`);
       });
 
       readUserDefinitionsMock.mockResolvedValue({ customModes: [], customCategories: [] }); // No user definitions
 
-      fsPathExistsMock.mockImplementation(async(p: fs.PathLike) => {
+      fsExtraPathExistsMock.mockImplementation(async(p: fsExtra.PathLike) => { // Use fsExtra type
         const pStr = String(p);
         // System files exist, except for the one rule file we want to test as missing
         if (pStr === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return true;}
@@ -411,10 +504,10 @@ describe('DefinitionLoader', () => {
       });
 
       // System definitions are standard
-      fsReadJsonMock.mockImplementation(async(p: any) => {
+      fsExtraReadJsonMock.mockImplementation(async(p: any) => {
         if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return testSystemModes;}
         if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json')) {return testSystemCategories;}
-        throw new Error(`fs.readJson mock: Unhandled path ${p} in AC6`);
+        throw new Error(`fsExtra.readJson mock: Unhandled path ${p} in AC6`);
       });
 
       // User definitions provide the mode with the bad rule path and its category
@@ -423,7 +516,7 @@ describe('DefinitionLoader', () => {
         customCategories: [createTestCategory({ slug: 'user-cat-1', name: 'User Category 1', source: 'user' })]
       });
 
-      fsPathExistsMock.mockImplementation(async(p: fs.PathLike) => {
+      fsExtraPathExistsMock.mockImplementation(async(p: fsExtra.PathLike) => { // Use fsExtra type
         const pStr = String(p);
         // All system files exist
         if (pStr.startsWith(MOCK_SYSTEM_DEFINITIONS_PATH)) {return true;}
@@ -439,50 +532,13 @@ describe('DefinitionLoader', () => {
     });
   });
 
-  // describe('getModeBySlug / getCategoryBySlug', () => {
-  //   beforeEach(async() => {
-  //     fsReadJsonMock.mockImplementation(async(p: any) => {
-  //       if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'modes.json')) {return testSystemModes;}
-  //       if (p === path.join(MOCK_SYSTEM_DEFINITIONS_PATH, 'categories.json')) {return testSystemCategories;}
-  //       if (p === path.join(MOCK_USER_CONFIG_PATH, 'user-definitions.json')) {return testUserDefinitions;}
-  //       return [];
-  //     });
-  //     fsPathExistsMock.mockImplementation(async() => true);
-  //     await loader.loadDefinitions();
-  //   });
-
-  //   it('should return a mode definition by slug', async() => {
-  //     const mode = await loader.getModeBySlug('sys-mode-1');
-  //     expect(mode).toBeDefined();
-  //     expect(mode?.name).toBe('User Overridden System Mode 1');
-  //     expect(mode?.source).toBe('user');
-  //   });
-
-  //   it('should return null if mode slug does not exist', async() => {
-  //     const mode = await loader.getModeBySlug('non-existent-slug');
-  //     expect(mode).toBeNull();
-  //   });
-
-  //   it('should return a category definition by slug', async() => {
-  //     const category = await loader.getCategoryBySlug('sys-cat-1');
-  //     expect(category).toBeDefined();
-  //     expect(category?.name).toBe('User Overridden System Category 1');
-  //     expect(category?.source).toBe('user');
-  //   });
-
-  //   it('should return null if category slug does not exist', async() => {
-  //     const category = await loader.getCategoryBySlug('non-existent-slug');
-  //     expect(category).toBeNull();
-  //   });
-  // });
-
   describe('getSystemModes', () => {
     it('should return only system modes', async() => {
-      fsReadJsonMock.mockResolvedValueOnce(JSON.parse(JSON.stringify(testSystemModes)));
+      fsExtraReadJsonMock.mockResolvedValueOnce(JSON.parse(JSON.stringify(testSystemModes)));
       const modes = await loader.getSystemModes();
       expect(modes.length).toBe(testSystemModes.length);
       modes.forEach(mode => {
-        expect(mode.source).toBe('system');
+        expect(mode.sourceType).toBe('system'); // Check sourceType
         const originalMode = testSystemModes.find(m => m.slug === mode.slug);
         expect(mode.name).toBe(originalMode?.name);
       });
@@ -495,7 +551,7 @@ describe('DefinitionLoader', () => {
       const modes = await loader.getCustomModes();
       expect(modes.length).toBe(testUserModes.length);
       modes.forEach(mode => {
-        expect(mode.source).toBe('user');
+        expect(mode.sourceType).toBe('custom'); // Check sourceType
         const originalMode = testUserModes.find(m => m.slug === mode.slug);
         expect(mode.name).toBe(originalMode?.name);
       });
@@ -510,7 +566,7 @@ describe('DefinitionLoader', () => {
 
   describe('getMergedModes', () => {
     it('Scenario 1: Only system definitions exist', async() => {
-      fsReadJsonMock.mockImplementation(async(p: any) => {
+      fsExtraReadJsonMock.mockImplementation(async(p: any) => {
         if (String(p).endsWith('modes.json')) {return JSON.parse(JSON.stringify(testSystemModes));}
         return []; // No categories for simplicity in this specific test
       });
@@ -521,7 +577,7 @@ describe('DefinitionLoader', () => {
     });
 
     it('Scenario 2: Only custom definitions exist', async() => {
-      fsReadJsonMock.mockImplementation(async(p: any) => {
+      fsExtraReadJsonMock.mockImplementation(async(p: any) => {
         // No system modes
         if (String(p).endsWith('modes.json')) {return [];}
         return []; // No categories
@@ -534,7 +590,7 @@ describe('DefinitionLoader', () => {
 
     it('Scenario 3: Mix of system and custom, no overlaps', async() => {
       const uniqueUserModes = [createTestMode({ slug: 'unique-user-mode', name: 'Unique User Mode', source: 'user' })];
-      fsReadJsonMock.mockImplementation(async(p: any) => {
+      fsExtraReadJsonMock.mockImplementation(async(p: any) => {
         if (String(p).endsWith('modes.json')) {return JSON.parse(JSON.stringify(testSystemModes));}
         return [];
       });
@@ -553,7 +609,7 @@ describe('DefinitionLoader', () => {
 
     it('Scenario 4: Mix of system and custom, with overlaps', async() => {
       // testUserModes already contains an override for 'sys-mode-1'
-      fsReadJsonMock.mockImplementation(async(p: any) => {
+      fsExtraReadJsonMock.mockImplementation(async(p: any) => {
         if (String(p).endsWith('modes.json')) {return JSON.parse(JSON.stringify(testSystemModes));}
         return [];
       });
@@ -572,7 +628,7 @@ describe('DefinitionLoader', () => {
     });
 
     it('Scenario 5: Empty system and custom definitions', async() => {
-      fsReadJsonMock.mockImplementation(async(p: any) => {
+      fsExtraReadJsonMock.mockImplementation(async(p: any) => {
         if (String(p).endsWith('modes.json')) {return [];}
         return [];
       });
@@ -585,10 +641,10 @@ describe('DefinitionLoader', () => {
   // Similar describe blocks for getSystemCategories, getCustomCategories, getMergedCategories
   describe('getSystemCategories', () => {
     it('should return only system categories', async() => {
-      fsReadJsonMock.mockResolvedValueOnce(JSON.parse(JSON.stringify(testSystemCategories)));
+      fsExtraReadJsonMock.mockResolvedValueOnce(JSON.parse(JSON.stringify(testSystemCategories)));
       const categories = await loader.getSystemCategories();
       expect(categories.length).toBe(testSystemCategories.length);
-      categories.forEach(cat => expect(cat.source).toBe('system'));
+      categories.forEach(cat => expect(cat.sourceType).toBe('system')); // Check sourceType
     });
   });
 
@@ -597,7 +653,7 @@ describe('DefinitionLoader', () => {
       readUserDefinitionsMock.mockResolvedValueOnce(JSON.parse(JSON.stringify({ customModes: [], customCategories: testUserCategories })));
       const categories = await loader.getCustomCategories();
       expect(categories.length).toBe(testUserCategories.length);
-      categories.forEach(cat => expect(cat.source).toBe('user'));
+      categories.forEach(cat => expect(cat.sourceType).toBe('custom')); // Check sourceType
     });
     it('should return an empty array if no custom categories exist', async() => {
       readUserDefinitionsMock.mockResolvedValueOnce(JSON.parse(JSON.stringify({ customModes: [], customCategories: [] })));
@@ -608,7 +664,7 @@ describe('DefinitionLoader', () => {
 
   describe('getMergedCategories', () => {
     it('Scenario 1: Only system categories exist', async() => {
-      fsReadJsonMock.mockImplementation(async(p: any) => {
+      fsExtraReadJsonMock.mockImplementation(async(p: any) => {
         if (String(p).endsWith('categories.json')) {return JSON.parse(JSON.stringify(testSystemCategories));}
         return [];
       });
@@ -619,7 +675,7 @@ describe('DefinitionLoader', () => {
     });
 
     it('Scenario 2: Only custom categories exist', async() => {
-      fsReadJsonMock.mockImplementation(async(p: any) => {
+      fsExtraReadJsonMock.mockImplementation(async(p: any) => {
         if (String(p).endsWith('categories.json')) {return [];}
         return [];
       });
@@ -631,7 +687,7 @@ describe('DefinitionLoader', () => {
 
     it('Scenario 4: Mix of system and custom categories, with overlaps', async() => {
       // testUserCategories contains an override for 'sys-cat-1'
-      fsReadJsonMock.mockImplementation(async(p: any) => {
+      fsExtraReadJsonMock.mockImplementation(async(p: any) => {
         if (String(p).endsWith('categories.json')) {return JSON.parse(JSON.stringify(testSystemCategories));}
         return [];
       });

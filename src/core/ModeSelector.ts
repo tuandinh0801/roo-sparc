@@ -1,4 +1,4 @@
-import { CategoryDefinition as Category, ModeDefinition as Mode } from '../types/domain.js';
+import { CategoryDefinitionWithSource as Category, ModeDefinitionWithSource as Mode } from '../types/domain.js';
 import { InvalidFlagArgumentError } from '../utils/errorHandler.js';
 import { UIManager } from '../utils/uiManager.js';
 import { DefinitionLoader } from './DefinitionLoader.js'; // Added import

@@ -2,7 +2,14 @@
  * Test Data Factory
  * Provides factory functions to create consistent test data for modes, categories, rules, etc.
  */
-import type { ModeDefinition, CategoryDefinition, Rule } from '../../src/types/domain.js';
+import type {
+  ModeDefinition,
+  CategoryDefinition,
+  Rule,
+  ModeDefinitionWithSource,
+  CategoryDefinitionWithSource,
+  DefinitionSource,
+} from '../../src/types/domain.js';
 
 let idCounter = 0;
 
@@ -44,26 +51,28 @@ export function createTestRules(count: number, baseOverrides: Partial<Rule> = {}
 /**
  * Create a test mode with customizable properties
  */
-export function createTestMode(overrides: Partial<ModeDefinition> = {}): ModeDefinition {
+export function createTestMode(overrides: Partial<ModeDefinitionWithSource> = {}): ModeDefinitionWithSource {
   idCounter++;
   const slug = overrides.slug ?? `test-mode-${idCounter}`;
+  const baseSourceType: DefinitionSource = overrides.sourceType ?? 'system';
   return {
     slug: slug,
     name: overrides.name ?? `Test Mode ${idCounter}`,
     description: overrides.description ?? `Description for test mode ${idCounter}`,
     categorySlugs: overrides.categorySlugs ?? [`test-cat-${idCounter}`],
     associatedRuleFiles: overrides.associatedRuleFiles ?? [createTestRule({ id: `${slug}-rule-1`, name: `Rule for ${slug}` })],
-    source: overrides.source ?? 'system',
+    source: overrides.source ?? (baseSourceType === 'system' ? 'system' : 'user'),
+    sourceType: baseSourceType,
     customInstructions: overrides.customInstructions ?? `Custom instructions for mode ${idCounter}`,
     groups: overrides.groups ?? ['common'],
-    ...overrides,
+    ...overrides, // Ensure overrides can include sourceType
   };
 }
 
 /**
  * Create multiple test modes
  */
-export function createTestModes(count: number, baseOverrides: Partial<ModeDefinition> = {}): ModeDefinition[] {
+export function createTestModes(count: number, baseOverrides: Partial<ModeDefinitionWithSource> = {}): ModeDefinitionWithSource[] {
   return Array.from({ length: count }, () => {
     // idCounter will be incremented by createTestMode
     return createTestMode({
@@ -75,21 +84,23 @@ export function createTestModes(count: number, baseOverrides: Partial<ModeDefini
 /**
  * Create a test category with customizable properties
  */
-export function createTestCategory(overrides: Partial<CategoryDefinition> = {}): CategoryDefinition {
+export function createTestCategory(overrides: Partial<CategoryDefinitionWithSource> = {}): CategoryDefinitionWithSource {
   idCounter++;
+  const baseSourceType: DefinitionSource = overrides.sourceType ?? 'system';
   return {
-    slug: `test-category-${idCounter}`,
-    name: `Test Category ${idCounter}`,
-    description: `Description for test category ${idCounter}`,
-    source: 'system',
-    ...overrides,
+    slug: overrides.slug ?? `test-category-${idCounter}`,
+    name: overrides.name ?? `Test Category ${idCounter}`,
+    description: overrides.description ?? `Description for test category ${idCounter}`,
+    source: overrides.source ?? (baseSourceType === 'system' ? 'system' : 'user'),
+    sourceType: baseSourceType,
+    ...overrides, // Ensure overrides can include sourceType
   };
 }
 
 /**
  * Create multiple test categories
  */
-export function createTestCategories(count: number, baseOverrides: Partial<CategoryDefinition> = {}): CategoryDefinition[] {
+export function createTestCategories(count: number, baseOverrides: Partial<CategoryDefinitionWithSource> = {}): CategoryDefinitionWithSource[] {
   return Array.from({ length: count }, () => {
     // idCounter will be incremented by createTestCategory
     return createTestCategory({
@@ -112,7 +123,8 @@ export const predefinedModes = {
     name: 'Basic Mode',
     description: 'A basic mode with minimal configuration',
     categorySlugs: ['core'],
-    associatedRuleFiles: [createTestRule({ id: 'basic-rule-1', name: 'Basic Rule 1', sourcePath: 'generic/basic-rule1.md' })]
+    associatedRuleFiles: [createTestRule({ id: 'basic-rule-1', name: 'Basic Rule 1', sourcePath: 'generic/basic-rule1.md' })],
+    sourceType: 'system',
   }),
 
   comprehensive: createTestMode({
@@ -123,7 +135,8 @@ export const predefinedModes = {
     associatedRuleFiles: [
       createTestRule({ id: 'comp-rule-1', name: 'Comp Rule 1', sourcePath: 'generic/comp-rule1.md' }),
       createTestRule({ id: 'comp-rule-2', name: 'Comp Rule 2', sourcePath: 'generic/comp-rule2.md' })
-    ]
+    ],
+    sourceType: 'system',
   }),
 
   minimal: createTestMode({
@@ -131,7 +144,8 @@ export const predefinedModes = {
     name: 'Minimal Mode',
     description: 'A minimal mode with only essential features',
     categorySlugs: ['core'],
-    associatedRuleFiles: [createTestRule({ id: 'minimal-rule-1', name: 'Minimal Rule 1', sourcePath: 'generic/minimal-rule1.md' })]
+    associatedRuleFiles: [createTestRule({ id: 'minimal-rule-1', name: 'Minimal Rule 1', sourcePath: 'generic/minimal-rule1.md' })],
+    sourceType: 'system',
   })
 };
 
@@ -142,25 +156,29 @@ export const predefinedCategories = {
   core: createTestCategory({
     slug: 'core',
     name: 'Core',
-    description: 'Core functionality rules'
+    description: 'Core functionality rules',
+    sourceType: 'system',
   }),
 
   utils: createTestCategory({
     slug: 'utils',
     name: 'Utilities',
-    description: 'Utility function rules'
+    description: 'Utility function rules',
+    sourceType: 'system',
   }),
 
   api: createTestCategory({
     slug: 'api',
     name: 'API',
-    description: 'API-related rules'
+    description: 'API-related rules',
+    sourceType: 'system',
   }),
 
   ui: createTestCategory({
     slug: 'ui',
     name: 'UI',
-    description: 'User interface rules'
+    description: 'User interface rules',
+    sourceType: 'system',
   })
 };
 

@@ -1,11 +1,18 @@
 import { Command } from 'commander';
+import fs from 'node:fs'; // Import fs for direct stderr writing
 import { BaseCommand } from '../base/BaseCommand.js';
 import { CategoryDefinition, UserDefinitions } from '../../types/domain.js'; // Added UserDefinitions
 
 /**
  * Command to add a new custom category.
  */
+import { CommandOptions } from '../base/BaseCommand.js'; // Import CommandOptions
+
 export class AddCategoryCommand extends BaseCommand {
+  constructor(options: CommandOptions) {
+    super(options);
+  }
+
   /**
    * Executes the add category command.
    */
@@ -37,7 +44,7 @@ export class AddCategoryCommand extends BaseCommand {
    */
   setupCommand(program: Command): void {
     program
-      .command('add:category')
+      .command('category')
       .description('Add a new custom category')
       .action(() => this.execute());
   }
@@ -103,8 +110,7 @@ export class AddCategoryCommand extends BaseCommand {
    */
   private async saveCategory(category: CategoryDefinition): Promise<void> {
     try {
-      // Load existing definitions
-      let userDefs: UserDefinitions = { // Explicitly type userDefs
+      let userDefs: UserDefinitions = {
         customModes: [],
         customCategories: [],
       };
@@ -118,8 +124,6 @@ export class AddCategoryCommand extends BaseCommand {
           };
         }
       } catch (error) {
-        // readUserDefinitions handles logging for file not found or parse errors,
-        // and returns null in those cases. If it throws, it's an unexpected error.
         this.ui.printWarning(`Could not read existing user definitions: ${(error as Error).message}. Starting with empty definitions.`);
       }
 

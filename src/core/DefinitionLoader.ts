@@ -1,30 +1,20 @@
-import fs from 'fs-extra';
+import fs from 'node:fs'; // Changed to node:fs for writeSync
+import fsExtra from 'fs-extra'; // Keep fs-extra for other operations
 import path from 'path';
 import { z } from 'zod';
-import { ModeDefinition, CategoryDefinition, Rule, SourceType as CommandSourceType } from '../types/domain.js';
+import {
+  ModeDefinition,
+  CategoryDefinition,
+  Rule,
+  SourceType as CommandSourceType,
+  DefinitionSource,
+  ModeDefinitionWithSource,
+  CategoryDefinitionWithSource,
+} from '../types/domain.js';
 import { FileManager } from './FileManager.js';
-import { uiManager } from '../utils/uiManager.js'; // To instantiate FileManager
-
-/**
- * Defines the source type of a definition for display purposes,
- * indicating whether it's a system default, a user customization,
- * or a user customization that overrides a system default.
- */
-export type DefinitionSourceType = 'system' | 'custom' | 'custom (overrides system)';
-
-/**
- * Extends ModeDefinition with a sourceType property for display purposes.
- */
-export interface ModeDefinitionWithSource extends ModeDefinition {
-  sourceType: DefinitionSourceType;
-}
-
-/**
- * Extends CategoryDefinition with a sourceType property for display purposes.
- */
-export interface CategoryDefinitionWithSource extends CategoryDefinition {
-  sourceType: DefinitionSourceType;
-}
+import { UIManager } from '../utils/uiManager.js'; // For constructor type
+import { uiManager as globalUiManager } from '../utils/uiManager.js'; // To instantiate FileManager if needed, or for default export
+import { fileURLToPath } from 'url';
 
 // Zod Schemas for validation
 const RuleSchema = z.object({
@@ -40,7 +30,12 @@ const CategoryDefinitionSchema = z.object({
   slug: z.string(),
   name: z.string(),
   description: z.string(),
-  source: z.enum(['system', 'user']).optional(), // Added source
+  /**
+   * Internal flag for initial loading and merging (system/user).
+   * Final display and detailed origin status should rely on 'sourceType'
+   * from CategoryDefinitionWithSource.
+   */
+  source: z.enum(['system', 'user']).optional(),
 });
 
 const ModeDefinitionSchema = z.object({
@@ -51,7 +46,12 @@ const ModeDefinitionSchema = z.object({
   groups: z.array(z.union([z.string(), z.array(z.union([z.string(), z.object({})]))])).optional(),
   categorySlugs: z.array(z.string()),
   associatedRuleFiles: z.array(RuleSchema),
-  source: z.enum(['system', 'user']).optional(), // Added source
+  /**
+   * Internal flag for initial loading and merging (system/user).
+   * Final display and detailed origin status should rely on 'sourceType'
+   * from ModeDefinitionWithSource.
+   */
+  source: z.enum(['system', 'user']).optional(),
 });
 
 // Schema for user-definitions.json
@@ -60,7 +60,12 @@ const UserDefinitionsSchema = z.object({
   customCategories: z.array(CategoryDefinitionSchema).optional(),
 });
 
-type UserDefinitionsFile = z.infer<typeof UserDefinitionsSchema>;
+type ParsedUserDefinitionsFile = z.infer<typeof UserDefinitionsSchema>;
+
+interface LoadedUserDefinitions {
+  customModes: ModeDefinitionWithSource[];
+  customCategories: CategoryDefinitionWithSource[];
+}
 
 /**
  * @class DefinitionLoader
@@ -70,37 +75,45 @@ type UserDefinitionsFile = z.infer<typeof UserDefinitionsSchema>;
 export class DefinitionLoader {
   private systemDefinitionsPath: string;
   private fileManager: FileManager;
+  private readonly uiManager: UIManager;
 
   /**
    * @constructor
    * @param {FileManager} fileManager - Instance of FileManager.
+   * @param {UIManager} uiManager - Instance of UIManager.
    * @param {string} [systemDefinitionsPath='definitions'] - The base path to the system definitions directory.
    */
-  constructor(fileManager: FileManager, systemDefinitionsPath: string = 'definitions') {
+  constructor(fileManager: FileManager, uiManager: UIManager, systemDefinitionsPathInput?: string) {
     this.fileManager = fileManager;
-    this.systemDefinitionsPath = systemDefinitionsPath;
+    this.uiManager = uiManager;
+
+    if (systemDefinitionsPathInput) {
+      this.systemDefinitionsPath = systemDefinitionsPathInput;
+    } else {
+      // Default path calculation, assuming compiled file is in .../dist/src/core/
+      // and definitions are in .../dist/definitions/
+      const currentFileDir = path.dirname(fileURLToPath(import.meta.url));
+      this.systemDefinitionsPath = path.resolve(currentFileDir, '..', '..', 'definitions');
+    }
   }
 
   /**
    * Loads all definitions (modes, categories) from system and user configurations.
    * Rule definitions are part of ModeDefinitions.
    * User definitions take precedence over system definitions in case of slug conflicts.
-   * @returns {Promise<{ modes: ModeDefinition[], categories: CategoryDefinition[] }>}
+   * @returns {Promise<{ modes: ModeDefinitionWithSource[], categories: CategoryDefinitionWithSource[] }>}
    * @throws {Error} If loading or validation fails for system definitions. User definition errors are logged as warnings.
    */
-  public async loadDefinitions(): Promise<{ modes: ModeDefinition[]; categories: CategoryDefinition[] }> {
+  public async loadDefinitions(): Promise<{ modes: ModeDefinitionWithSource[]; categories: CategoryDefinitionWithSource[] }> {
     try {
-      // Load system definitions
-      let systemModes = await this.loadAndValidateSystemModes();
-      let systemCategories = await this.loadAndValidateSystemCategories();
+      // Load system definitions (already include source and sourceType)
+      const systemModes = await this.loadAndValidateSystemModes();
+      const systemCategories = await this.loadAndValidateSystemCategories();
 
-      systemModes = systemModes.map(mode => ({ ...mode, source: 'system' as const }));
-      systemCategories = systemCategories.map(cat => ({ ...cat, source: 'system' as const }));
-
-      // Load user definitions
+      // Load user definitions (already include source and sourceType)
       const userDefinitions = await this.loadUserDefinitions();
-      const userModes = (userDefinitions?.customModes || []).map(mode => ({ ...mode, source: 'user' as const }));
-      const userCategories = (userDefinitions?.customCategories || []).map(cat => ({ ...cat, source: 'user' as const }));
+      const userModes: ModeDefinitionWithSource[] = userDefinitions?.customModes || [];
+      const userCategories: CategoryDefinitionWithSource[] = userDefinitions?.customCategories || [];
 
       // Merge definitions
       const mergedModes = this.mergeModes(systemModes, userModes);
@@ -108,11 +121,10 @@ export class DefinitionLoader {
 
       // Validate merged definitions
       this.validateModeCategories(mergedModes, mergedCategories);
-      await this.validateRulePaths(mergedModes); // This will now need to consider the 'source'
+      await this.validateRulePaths(mergedModes);
 
       return { modes: mergedModes, categories: mergedCategories };
     } catch (error) {
-      // console.error("Failed to load definitions:", error); // System definition errors are critical
       throw new Error(`Failed to load definitions: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -130,119 +142,117 @@ export class DefinitionLoader {
    * @returns {Promise<ModeDefinition[]>}
    * @private
    */
-  private async loadAndValidateSystemModes(): Promise<ModeDefinition[]> {
+  private async loadAndValidateSystemModes(): Promise<ModeDefinitionWithSource[]> {
     const modesPath = path.join(this.systemDefinitionsPath, 'modes.json');
-    if (process.env.NODE_ENV === 'test') {
-      console.log(`[DefinitionLoader Test Log] Checking for system modes.json at: ${modesPath}`);
-    }
-    if (!await fs.pathExists(modesPath)) {
-      if (process.env.NODE_ENV === 'test') {
-        console.error(`[DefinitionLoader Test Log] System modes.json NOT FOUND at: ${modesPath}`);
-      }
+    if (!await fsExtra.pathExists(modesPath)) { // Use fsExtra for pathExists
       throw new Error(`System modes definition file not found at ${modesPath}`);
     }
-    const modesContent = await fs.readJson(modesPath);
-    if (process.env.NODE_ENV === 'test') {
-      console.log(`[DefinitionLoader Test Log] Content of system ${modesPath}:`, JSON.stringify(modesContent, null, 2));
-    }
+    const modesContent = await fsExtra.readJson(modesPath); // Use fsExtra for readJson
     const validationResult = z.array(ModeDefinitionSchema).safeParse(modesContent);
     if (!validationResult.success) {
-      if (process.env.NODE_ENV === 'test') {
-        console.error(`[DefinitionLoader Test Log] Validation failed for system ${modesPath}: ${validationResult.error.errors.map(e => `${e.path.join('.')} - ${e.message}`).join(', ')}`);
-      }
       throw new Error(`Invalid system modes.json: ${validationResult.error.errors.map(e => `${e.path.join('.')} - ${e.message}`).join(', ')}`);
     }
-    return validationResult.data.map(mode => ({ ...mode, source: 'system' as const }));
+    return validationResult.data.map(mode => ({ ...mode, source: 'system' as const, sourceType: 'system' as DefinitionSource }));
   }
 
   /**
    * Loads and validates system category definitions from `categories.json`.
-   * @returns {Promise<CategoryDefinition[]>}
+   * @returns {Promise<CategoryDefinitionWithSource[]>}
    * @private
    */
-  private async loadAndValidateSystemCategories(): Promise<CategoryDefinition[]> {
+  private async loadAndValidateSystemCategories(): Promise<CategoryDefinitionWithSource[]> {
     const categoriesPath = path.join(this.systemDefinitionsPath, 'categories.json');
-    if (!await fs.pathExists(categoriesPath)) {
+    if (!await fsExtra.pathExists(categoriesPath)) { // Use fsExtra for pathExists
       throw new Error(`System categories definition file not found at ${categoriesPath}`);
     }
-    const categoriesContent = await fs.readJson(categoriesPath);
+    const categoriesContent = await fsExtra.readJson(categoriesPath); // Use fsExtra for readJson
     const validationResult = z.array(CategoryDefinitionSchema).safeParse(categoriesContent);
     if (!validationResult.success) {
       throw new Error(`Invalid system categories.json: ${validationResult.error.errors.map(e => `${e.path.join('.')} - ${e.message}`).join(', ')}`);
     }
-    return validationResult.data.map(cat => ({ ...cat, source: 'system' as const }));
+    return validationResult.data.map(cat => ({ ...cat, source: 'system' as const, sourceType: 'system' as DefinitionSource }));
   }
 
   /**
    * Loads user-defined modes and categories from `user-definitions.json`.
    * Handles missing or invalid files gracefully by logging a warning.
    * @private
-   * @returns {Promise<UserDefinitionsFile | null>}
+   * @returns {Promise<LoadedUserDefinitions | null>}
    */
-  private async loadUserDefinitions(): Promise<UserDefinitionsFile | null> {
+  private async loadUserDefinitions(): Promise<LoadedUserDefinitions | null> {
     try {
-      // Delegate reading and initial parsing/validation to FileManager's method
       const userDefsFromFile = await this.fileManager.readUserDefinitions();
 
       if (!userDefsFromFile) {
-        // FileManager.readUserDefinitions already logs if file not found or parse error,
-        // and returns null in those cases.
-        // console.warn is handled by fileManager.readUserDefinitions
         return null;
       }
 
-      // Further Zod validation specific to DefinitionLoader's expectations if needed,
-      // or assume FileManager.readUserDefinitions returns data adhering to UserDefinitionsFile type.
-      // For now, assume FileManager.readUserDefinitions returns the correct structure
-      // or null, and handles its own console warnings for file-not-found/parse errors.
       const validationResult = UserDefinitionsSchema.safeParse(userDefsFromFile);
 
       if (!validationResult.success) {
-        // This case might occur if FileManager.readUserDefinitions returns something
-        // that passed its basic JSON parse but fails this stricter Zod schema.
         const userConfigPath = this.fileManager.getUserConfigPath();
         const userDefinitionsPath = path.join(userConfigPath, 'user-definitions.json');
-        console.warn(`Invalid structure in user-definitions.json at ${userDefinitionsPath} after initial read: ${validationResult.error.errors.map(e => `${e.path.join('.')} - ${e.message}`).join(', ')}. Proceeding without user definitions.`);
+        this.uiManager.printWarning(`Invalid structure in user-definitions.json at ${userDefinitionsPath} after initial read: ${validationResult.error.errors.map(e => `${e.path.join('.')} - ${e.message}`).join(', ')}. Proceeding without user definitions.`);
         return null;
       }
 
-      const resultData = validationResult.data;
-      // Ensure 'source: user' is set, as FileManager.readUserDefinitions might not set this.
-      if (resultData.customModes) {
-        resultData.customModes = resultData.customModes.map(m => ({ ...m, source: 'user' as const }));
-      }
-      if (resultData.customCategories) {
-        resultData.customCategories = resultData.customCategories.map(c => ({ ...c, source: 'user' as const }));
-      }
-      return resultData;
+      const parsedData: ParsedUserDefinitionsFile = validationResult.data;
+
+      const customModes: ModeDefinitionWithSource[] = (parsedData.customModes || []).map(m => ({
+        ...m,
+        source: 'user' as const, // Ensure source is 'user'
+        sourceType: 'custom' as DefinitionSource,
+      }));
+
+      const customCategories: CategoryDefinitionWithSource[] = (parsedData.customCategories || []).map(c => ({
+        ...c,
+        source: 'user' as const, // Ensure source is 'user'
+        sourceType: 'custom' as DefinitionSource,
+      }));
+
+      return { customModes, customCategories };
 
     } catch (error) {
-      // Catch errors from this.fileManager.readUserDefinitions() if it throws unexpectedly
-      // (though it's designed to return null for common read/parse issues).
-      console.warn(`Unexpected error calling this.fileManager.readUserDefinitions(): ${error instanceof Error ? error.message : String(error)}. Proceeding without user definitions.`);
+      this.uiManager.printWarning(`Unexpected error calling this.fileManager.readUserDefinitions(): ${error instanceof Error ? error.message : String(error)}. Proceeding without user definitions.`);
       return null;
     }
   }
 
   /**
-   * Merges system and user modes, with user modes taking precedence.
+   * Merges system and user modes, with user modes taking precedence and sourceType updated.
    * @private
    */
-  private mergeModes(systemModes: ModeDefinition[], userModes: ModeDefinition[]): ModeDefinition[] {
-    const merged = new Map<string, ModeDefinition>();
-    systemModes.forEach(mode => merged.set(mode.slug, mode));
-    userModes.forEach(mode => merged.set(mode.slug, mode)); // User mode overwrites system if slug matches
+  private mergeModes(systemModes: ModeDefinitionWithSource[], userModes: ModeDefinitionWithSource[]): ModeDefinitionWithSource[] {
+    const merged = new Map<string, ModeDefinitionWithSource>();
+    systemModes.forEach(mode => merged.set(mode.slug, mode)); // mode already has sourceType: 'system'
+    userModes.forEach(mode => { // mode here has sourceType: 'custom' from loadUserDefinitions
+      if (merged.has(mode.slug)) {
+        // User mode overwrites system, update sourceType
+        merged.set(mode.slug, { ...mode, sourceType: 'custom (overrides system)' });
+      } else {
+        // New custom mode, sourceType is already 'custom'
+        merged.set(mode.slug, mode);
+      }
+    });
     return Array.from(merged.values());
   }
 
   /**
-   * Merges system and user categories, with user categories taking precedence.
+   * Merges system and user categories, with user categories taking precedence and sourceType updated.
    * @private
    */
-  private mergeCategories(systemCategories: CategoryDefinition[], userCategories: CategoryDefinition[]): CategoryDefinition[] {
-    const merged = new Map<string, CategoryDefinition>();
-    systemCategories.forEach(cat => merged.set(cat.slug, cat));
-    userCategories.forEach(cat => merged.set(cat.slug, cat)); // User category overwrites system
+  private mergeCategories(systemCategories: CategoryDefinitionWithSource[], userCategories: CategoryDefinitionWithSource[]): CategoryDefinitionWithSource[] {
+    const merged = new Map<string, CategoryDefinitionWithSource>();
+    systemCategories.forEach(cat => merged.set(cat.slug, cat)); // cat already has sourceType: 'system'
+    userCategories.forEach(cat => { // cat here has sourceType: 'custom' from loadUserDefinitions
+      if (merged.has(cat.slug)) {
+        // User category overwrites system, update sourceType
+        merged.set(cat.slug, { ...cat, sourceType: 'custom (overrides system)' });
+      } else {
+        // New custom category, sourceType is already 'custom'
+        merged.set(cat.slug, cat);
+      }
+    });
     return Array.from(merged.values());
   }
 
@@ -266,111 +276,59 @@ export class DefinitionLoader {
 
   /**
    * Validates that all rule sourcePath files exist for both system and user modes.
-   * @param {ModeDefinition[]} modes - The merged mode definitions.
+   * @param {ModeDefinitionWithSource[]} modes - The merged mode definitions.
    * @private
    * @throws {Error} If a rule file is not found.
    */
-  private async validateRulePaths(modes: ModeDefinition[]): Promise<void> {
-    if (process.env.NODE_ENV === 'test') {
-      console.log('[DefinitionLoader Test Log] validateRulePaths called with modes:', JSON.stringify(modes.map(m => ({ slug: m.slug, source: m.source })), null, 2));
-    }
+  private async validateRulePaths(modes: ModeDefinitionWithSource[]): Promise<void> {
+    const userConfigRulesPath = path.join(this.fileManager.getUserConfigPath(), 'rules');
+    const systemRulesPath = path.join(this.systemDefinitionsPath, 'rules');
 
-    try {
-      const userConfigRulesPath = path.join(this.fileManager.getUserConfigPath(), 'rules');
-      if (process.env.NODE_ENV === 'test') {
-        console.log('[DefinitionLoader Test Log] userConfigRulesPath:', userConfigRulesPath);
-      }
+    const rulePromises = modes.flatMap(mode => {
+      // mode.source is from the original JSON ('system' or 'user').
+      // mode.sourceType is more descriptive ('system', 'custom', 'custom (overrides system)').
+      // For rule path resolution, the original 'source' (where the definition JSON was found) is key.
+      const definitionOriginSource = mode.source;
 
-      const systemRulesPath = path.join(this.systemDefinitionsPath, 'rules');
-      if (process.env.NODE_ENV === 'test') {
-        console.log('[DefinitionLoader Test Log] systemRulesPath:', systemRulesPath);
-      }
-
-      const rulePromises = modes.flatMap(mode => {
-        if (process.env.NODE_ENV === 'test') {
-          console.log(`[DefinitionLoader Test Log] Processing mode: ${mode.slug}, source: ${mode.source}`);
+      return mode.associatedRuleFiles.map(async(rule: Rule) => {
+        let ruleBasePath: string;
+        if (definitionOriginSource === 'user') {
+          ruleBasePath = userConfigRulesPath;
+        } else { // 'system' or undefined (should default to system for rules)
+          ruleBasePath = systemRulesPath;
         }
+        const fullRulePath = path.join(ruleBasePath, rule.sourcePath);
 
-        return mode.associatedRuleFiles.map(async(rule: Rule) => {
-          if (process.env.NODE_ENV === 'test') {
-            console.log(`[DefinitionLoader Test Log] Processing rule: ${rule.id} in mode ${mode.slug}`);
-          }
-
-          let ruleBasePath: string;
-          // rule.sourcePath is expected to be like 'mode-slug/rule-file.md'
-          // or just 'rule-file.md' if it's directly under the mode's rule folder.
-          // The story (AC6) suggests: `[custom_mode_slug]/my-custom-rule.md` relative to `~/.config/roo-init/rules/`
-          // This means rule.sourcePath itself contains the mode slug.
-
-          if (mode.source === 'user') {
-            ruleBasePath = userConfigRulesPath;
-          } else { // 'system' or undefined (should default to system)
-            ruleBasePath = systemRulesPath;
-          }
-
-          if (process.env.NODE_ENV === 'test') {
-            console.log(`[DefinitionLoader Test Log] ruleBasePath for ${rule.id}: ${ruleBasePath}`);
-            console.log(`[DefinitionLoader Test Log] rule.sourcePath: ${rule.sourcePath}`);
-          }
-
-          // The rule.sourcePath should be like "mode-slug/rule-name.md"
-          // It's relative to the 'rules' directory (either system or user)
-          try {
-            // Use explicit path module reference to avoid any shadowing issues
-            const fullRulePath = require('path').join(ruleBasePath, rule.sourcePath);
-
-            if (process.env.NODE_ENV === 'test') {
-              console.log(`[DefinitionLoader Test Log] fullRulePath: ${fullRulePath}`);
-            }
-
-            if (!await fs.pathExists(fullRulePath)) {
-              throw new Error(`Rule file not found for ${mode.source || 'system'} mode "${mode.slug}", rule "${rule.id}": ${fullRulePath} (sourcePath: "${rule.sourcePath}")`);
-            }
-          } catch (error) {
-            if (process.env.NODE_ENV === 'test') {
-              console.error(`[DefinitionLoader Test Log] Error joining paths: ${error}`);
-            }
-            throw error;
-          }
-        });
+        if (!await fsExtra.pathExists(fullRulePath)) { // Use fsExtra for pathExists
+          throw new Error(`Rule file not found for ${definitionOriginSource || 'system'} mode "${mode.slug}", rule "${rule.id}": ${fullRulePath} (sourcePath: "${rule.sourcePath}")`);
+        }
       });
+    });
 
-      await Promise.all(rulePromises);
-    } catch (error) {
-      if (process.env.NODE_ENV === 'test') {
-        console.error(`[DefinitionLoader Test Log] Error in validateRulePaths: ${error}`);
-      }
-      throw error;
-    }
+    await Promise.all(rulePromises);
   }
 
   /**
    * Retrieves only system mode definitions.
-   * @returns {Promise<ModeDefinition[]>}
+   * @returns {Promise<ModeDefinitionWithSource[]>}
    */
-  public async getSystemModes(): Promise<ModeDefinition[]> {
+  public async getSystemModes(): Promise<ModeDefinitionWithSource[]> {
     try {
-      const modes = await this.loadAndValidateSystemModes();
-      // Ensure source is marked, though loadAndValidateSystemModes should already do this
-      return modes.map(mode => ({ ...mode, source: 'system' as const }));
+      return await this.loadAndValidateSystemModes();
     } catch (error) {
-      // console.error("Failed to load system modes:", error);
       throw new Error(`Failed to load system modes: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   /**
    * Retrieves only custom mode definitions.
-   * @returns {Promise<ModeDefinition[]>}
+   * @returns {Promise<ModeDefinitionWithSource[]>}
    */
-  public async getCustomModes(): Promise<ModeDefinition[]> {
+  public async getCustomModes(): Promise<ModeDefinitionWithSource[]> {
     try {
-      const userDefs = await this.loadUserDefinitions();
-      const modes = userDefs?.customModes || [];
-      // Ensure source is marked, though loadUserDefinitions should already do this
-      return modes.map(mode => ({ ...mode, source: 'user' as const }));
+      const userDefs = await this.loadUserDefinitions(); // Now returns { customModes: ModeDefinitionWithSource[], ... }
+      return userDefs?.customModes || [];
     } catch (error) {
-      // console.warn("Failed to load custom modes:", error);
       // For custom modes, we might not want to throw a fatal error,
       // but rather return an empty array or let the caller handle it.
       // However, to be consistent with getSystemModes, we'll throw for now.
@@ -390,7 +348,7 @@ export class DefinitionLoader {
     const mergedMap = new Map<string, ModeDefinitionWithSource>();
 
     systemModes.forEach(mode => {
-      mergedMap.set(mode.slug, { ...mode, sourceType: 'system' });
+      mergedMap.set(mode.slug, mode);
     });
 
     customModes.forEach(mode => {
@@ -412,12 +370,11 @@ export class DefinitionLoader {
 
   /**
    * Retrieves only system category definitions.
-   * @returns {Promise<CategoryDefinition[]>} A promise that resolves to an array of system category definitions.
+   * @returns {Promise<CategoryDefinitionWithSource[]>} A promise that resolves to an array of system category definitions.
    */
-  public async getSystemCategories(): Promise<CategoryDefinition[]> {
+  public async getSystemCategories(): Promise<CategoryDefinitionWithSource[]> {
     try {
-      const categories = await this.loadAndValidateSystemCategories();
-      return categories.map(cat => ({ ...cat, source: 'system' as const }));
+      return await this.loadAndValidateSystemCategories();
     } catch (error) {
       throw new Error(`Failed to load system categories: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -425,13 +382,12 @@ export class DefinitionLoader {
 
   /**
    * Retrieves only custom category definitions.
-   * @returns {Promise<CategoryDefinition[]>} A promise that resolves to an array of custom category definitions.
+   * @returns {Promise<CategoryDefinitionWithSource[]>} A promise that resolves to an array of custom category definitions.
    */
-  public async getCustomCategories(): Promise<CategoryDefinition[]> {
+  public async getCustomCategories(): Promise<CategoryDefinitionWithSource[]> {
     try {
-      const userDefs = await this.loadUserDefinitions();
-      const categories = userDefs?.customCategories || [];
-      return categories.map(cat => ({ ...cat, source: 'user' as const }));
+      const userDefs = await this.loadUserDefinitions(); // Now returns { ..., customCategories: CategoryDefinitionWithSource[] }
+      return userDefs?.customCategories || [];
     } catch (error) {
       throw new Error(`Failed to load custom categories: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -448,7 +404,7 @@ export class DefinitionLoader {
     const mergedMap = new Map<string, CategoryDefinitionWithSource>();
 
     systemCategories.forEach(cat => {
-      mergedMap.set(cat.slug, { ...cat, sourceType: 'system' });
+      mergedMap.set(cat.slug, cat);
     });
 
     customCategories.forEach(cat => {
@@ -465,5 +421,10 @@ export class DefinitionLoader {
 }
 
 // Create instances needed for the singleton definitionLoader
-const fileManagerInstance = new FileManager(uiManager);
-export const definitionLoader = new DefinitionLoader(fileManagerInstance);
+const fileManagerInstance = new FileManager(globalUiManager);
+
+const currentSingletonFileDir = path.dirname(fileURLToPath(import.meta.url));
+
+const distDefinitionsPathSingleton = path.resolve(currentSingletonFileDir, '..', '..', 'definitions');
+
+export const definitionLoader = new DefinitionLoader(fileManagerInstance, globalUiManager, distDefinitionsPathSingleton);

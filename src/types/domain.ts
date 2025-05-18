@@ -17,7 +17,13 @@ export interface CategoryDefinition {
   slug: string; // Unique identifier for the category (e.g., "development-workflows")
   name: string; // Human-readable name (e.g., "Development Workflows")
   description?: string; // Brief description of the category
-  source?: 'system' | 'user'; // Indicates if the definition is from the system or user configuration
+  /**
+   * Indicates the origin of this definition (system default or user-defined).
+   * This property is primarily used internally by DefinitionLoader for merging logic
+   * and determining the base path for associated rule files.
+   * For display purposes, `sourceType` on `CategoryDefinitionWithSource` should be used.
+   */
+  source?: 'system' | 'user';
 }
 
 /**
@@ -39,7 +45,13 @@ export interface ModeDefinition {
   groups?: (string | (string | object)[])[]; // Corresponds to 'groups' in .roomodes output
   categorySlugs: string[]; // Array of category slugs this mode belongs to
   associatedRuleFiles: Rule[]; // Array of Rule file metadata objects associated with this mode (both generic and specific). This is used internally by roo-init to know which files to copy.
-  source?: 'system' | 'user'; // Indicates if the definition is from the system or user configuration
+  /**
+   * Indicates the origin of this definition (system default or user-defined).
+   * This property is primarily used internally by DefinitionLoader for merging logic
+   * and determining the base path for associated rule files.
+   * For display purposes, `sourceType` on `ModeDefinitionWithSource` should be used.
+   */
+  source?: 'system' | 'user';
 }
 
 /**

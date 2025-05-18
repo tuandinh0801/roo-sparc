@@ -15,8 +15,6 @@
     "test": "vitest run --silent",
     "test:watch": "vitest watch",
     "test:unit": "vitest run tests/core tests/utils tests/commands src",
-    "test:integration": "vitest run tests/integration tests/cli.integration.test.ts",
-    "test:e2e": "vitest run tests/e2e",
     "coverage": "vitest run --coverage",
     "lint": "eslint . --ext .ts,.tsx",
     "format": "eslint . --ext .ts,.tsx --fix"

@@ -35,7 +35,7 @@
         "isGeneric": true
       }
     ],
-    "source": "project"
+    "source": "system"
   },
   {
     "slug": "architect",
@@ -44,7 +44,7 @@
     "customInstructions": "Create architecture mermaid diagrams, data flows, and integration points. Ensure no part of the design includes secrets or hardcoded env values. Emphasize modular boundaries and maintain extensibility. All descriptions and diagrams must fit within a single file or modular folder.",
     "groups": ["read", "edit"],
     "categorySlugs": ["sparc-workflow"],
-    "source": "project",
+    "source": "system",
     "associatedRuleFiles": [
       {
         "id": "architect-checklist",
@@ -71,7 +71,7 @@
         "isGeneric": false
       }
     ],
-    "source": "project"
+    "source": "system"
   },
   {
     "slug": "debug",
@@ -89,7 +89,7 @@
         "isGeneric": false
       }
     ],
-    "source": "project"
+    "source": "system"
   },
   {
     "slug": "security-review",
@@ -107,7 +107,7 @@
         "isGeneric": false
       }
     ],
-    "source": "project"
+    "source": "system"
   },
   {
     "slug": "integration",
@@ -125,7 +125,7 @@
         "isGeneric": false
       }
     ],
-    "source": "project"
+    "source": "system"
   },
   {
     "slug": "post-deployment-monitoring-mode",
@@ -143,7 +143,7 @@
         "isGeneric": false
       }
     ],
-    "source": "project"
+    "source": "system"
   },
   {
     "slug": "refinement-optimization-mode",
@@ -161,7 +161,7 @@
         "isGeneric": false
       }
     ],
-    "source": "project"
+    "source": "system"
   },
   {
     "slug": "ask",
@@ -179,7 +179,7 @@
         "isGeneric": false
       }
     ],
-    "source": "project"
+    "source": "system"
   },
   {
     "slug": "devops",
@@ -197,7 +197,7 @@
         "isGeneric": false
       }
     ],
-    "source": "project"
+    "source": "system"
   },
   {
     "slug": "mcp",
@@ -215,7 +215,7 @@
         "isGeneric": false
       }
     ],
-    "source": "project"
+    "source": "system"
   },
   {
     "slug": "sparc",
@@ -233,7 +233,7 @@
         "isGeneric": false
       }
     ],
-    "source": "project"
+    "source": "system"
   },
   {
     "slug": "spec-pseudocode",
@@ -251,7 +251,7 @@
         "isGeneric": false
       }
     ],
-    "source": "project"
+    "source": "system"
   },
   {
     "slug": "docs-writer",
@@ -269,6 +269,6 @@
         "isGeneric": false
       }
     ],
-    "source": "project"
+    "source": "system"
   }
 ]

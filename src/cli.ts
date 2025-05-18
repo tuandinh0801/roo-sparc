@@ -1,25 +1,18 @@
 #!/usr/bin/env node
-
 import { Command } from 'commander';
 import pkg from '../package.json' with { type: 'json' };
 import { UIManager } from './utils/uiManager.js';
 import { FileManager } from './core/FileManager.js';
 import { DefinitionLoader } from './core/DefinitionLoader.js';
-import { ModeSelector } from './core/ModeSelector.js';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
+import { CommandOptions } from './commands/base/BaseCommand.js'; // Import CommandOptions
 
 // Import commands
 import { AddCategoryCommand } from './commands/manage/AddCategoryCommand.js';
 import { AddModeCommand } from './commands/manage/AddModeCommand.js';
 import { ListCategoriesCommand } from './commands/manage/ListCategoriesCommand.js';
 import { ListModesCommand } from './commands/manage/ListModesCommand.js';
-
-// Determine the root directory of the CLI application
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const projectRoot = path.resolve(__dirname, '..');
-const definitionsPath = path.join(projectRoot, 'definitions');
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const description = 'A CLI tool for initializing Roo projects.';
 
@@ -29,8 +22,14 @@ const uiManager = new UIManager();
 
 // Initialize services
 const fileManager = new FileManager(uiManager);
-const definitionLoader = new DefinitionLoader(fileManager);
-const modeSelector = new ModeSelector(definitionLoader, uiManager);
+const definitionLoader = new DefinitionLoader(fileManager, uiManager);
+
+// Create CommandOptions object
+const commandOptions: CommandOptions = {
+  ui: uiManager,
+  fileManager: fileManager,
+  definitionLoader: definitionLoader,
+};
 
 // Set up the main command
 app
@@ -46,17 +45,14 @@ const manageCommand = app
   .command('manage')
   .description('Manage roo-init configurations and definitions.');
 
-// Initialize and register commands for the 'manage' group (excluding list commands)
-const manageCommands = [
-  new AddCategoryCommand(),
-  new AddModeCommand(),
-  // ListCommands are now registered under the 'list' subcommand
-];
+// Set up the 'manage add' subcommand group
+const addCommand = manageCommand
+  .command('add')
+  .description('Add a new custom mode or category.');
 
-// Set up each direct 'manage' command
-manageCommands.forEach(command => {
-  command.setupCommand(manageCommand);
-});
+// Initialize and register AddCategoryCommand and AddModeCommand under 'manage add'
+new AddCategoryCommand(commandOptions).setupCommand(addCommand); // Will be `manage add category`
+new AddModeCommand(commandOptions).setupCommand(addCommand);     // Will be `manage add mode`
 
 // Set up the 'manage list' subcommand group
 const listCommand = manageCommand
@@ -64,12 +60,8 @@ const listCommand = manageCommand
   .description('List custom modes or categories');
 
 // Register ListModesCommand and ListCategoriesCommand under 'manage list'
-new ListModesCommand().setupCommand(listCommand); // This will make it `roo-init manage list list:modes` effectively
-new ListCategoriesCommand().setupCommand(listCommand); // This will make it `roo-init manage list list:categories` effectively
-
-// To achieve `roo-init manage list modes` and `roo-init manage list categories`,
-// the `ListModesCommand.command` should be 'modes' and `ListCategoriesCommand.command` should be 'categories'.
-// This will be addressed by updating the static `command` property in those command files.
+new ListModesCommand(commandOptions).setupCommand(listCommand); // This will make it `roo-init manage list list:modes` effectively
+new ListCategoriesCommand(commandOptions).setupCommand(listCommand); // This will make it `roo-init manage list list:categories` effectively
 
 // Main application action - runs when no subcommand is specified
 app.action(async(options, command) => {
@@ -97,10 +89,23 @@ app.action(async(options, command) => {
   }
 });
 
-// Export the app for testing purposes
-export { app };
+// Main CLI function
+export default async function cli(): Promise<void> {
+  try {
+    await app.parseAsync(process.argv);
+  } catch (error) {
+    console.error('An error occurred:');
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+}
 
-// Only parse command line arguments if this file is being run directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  app.parse(process.argv);
+// Only run the CLI if this file is being run directly
+const scriptPath = fileURLToPath(import.meta.url);
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(scriptPath)) {
+  cli().catch(error => {
+    console.error('Failed to run CLI:');
+    console.error(error);
+    process.exit(1);
+  });
 }

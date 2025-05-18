@@ -19,8 +19,14 @@ async function start() {
   }
 
   try {
-    const { main } = await import(distPath);
-    await main();
+    // Import the CLI module
+    const { default: cli } = await import(`file://${distPath}`);
+    
+    // Ensure the CLI is properly initialized
+    if (typeof cli === 'function') {
+      await cli();
+    }
+    await import(distPath);
   } catch (err) {
     console.error('Failed to start the application from dist.');
     console.error(err);
